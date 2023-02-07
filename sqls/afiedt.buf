@@ -1,0 +1,7 @@
+select STAT_ID, auto_update_id, trunc(mysql_last_update), count (*)
+from AU_STATS
+WHERE  stat_id IN (203,204,205,207,208)
+and trunc(mysql_last_update) between (trunc(sysdate-2)) and (trunc(sysdate))
+group by STAT_ID, auto_update_id, trunc(mysql_last_update)
+order by 3,1,2
+/

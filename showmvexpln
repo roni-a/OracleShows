@@ -1,0 +1,45 @@
+#!/usr/bin/ksh
+#
+
+export ORCLE_HOME=`grep -i $ORACLE_SID /etc/oratab | awk -F: '{print $2}'`
+export SQLPLUS=${ORACLE_HOME}/bin/sqlplus 
+
+OUSER=
+OPASS=
+FILE=
+while getopts m:p:u: opt
+do
+    case "$opt" in
+       m  )  MVIEW="$OPTARG"
+             ;;
+       p  )  OPASS="$OPTARG"
+             ;;
+       u  )  OUSER="$OPTARG"
+             ;;
+       \? )  # unknown flag
+             Usage
+             exit 1
+             ;;
+    esac
+done
+shift `expr $OPTIND - 1`
+
+echo ================ $MVIEW =================
+
+$SQLPLUS -s ${OUSER}/${OPASS} << *EOF*
+set pages 9999 line 400 echo off verify off feedback off
+
+truncate table mv_capabilities_table;
+
+EXEC dbms_mview.explain_mview('$MVIEW');
+
+SELECT capability_name,
+possible,
+substr(msgtxt,1,80) AS msgtxt
+FROM mv_capabilities_table
+WHERE capability_name like '%FAST%'
+/
+
+prompt
+*EOF*
+

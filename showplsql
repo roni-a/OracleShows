@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# ---------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------
+Usage () {
+   echo -en "\n\t Usage: $0 -a <operation> -o <owner> -n <name> -t <type> -s\n"
+	 echo -en "\n\t\t MANDATORY: -a => [ l | list ] - List of PL/SQL obj \n\t\t\t\t  [ t | text ] - get PL/SQL obj text\n"
+	 echo -en "\n\t\t <type> => PROCEDURE, BODY, FUNCTION \n"
+	 echo ""
+}
+
+# ---------------------------------------------------------------
+# Get the text content of a PL/SQL object
+# ---------------------------------------------------------------
+ListProcText () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feed off verify off lines 250 pages 10000 head off
+define owner=$OWNER
+define name=$PL_OBJ_NAME
+define type="${PL_OBJ_TYPE}"
+
+SELECT TEXT
+FROM   SYS.DBA_SOURCE
+WHERE  OWNER = UPPER('&owner')
+AND    NAME  = UPPER('&name')
+AND    TYPE  = UPPER('&type')
+ORDER  BY LINE
+/
+*EOF*
+}
+
+# ---------------------------------------------------------------
+# List all PL/SQL object of a user
+# ---------------------------------------------------------------
+ProcList () {
+sqlplus -s / << *EOF*
+set echo off feed off verify off lines 250 pages 10000 head off
+
+define owner=$OWNER
+
+SELECT object_name, object_type
+FROM   all_objects
+WHERE  owner LIKE UPPER('&owner')
+$SYS
+AND    object_type IN ('PACKAGE BODY', 'PROCEDURE', 'FUNCTION')
+/
+*EOF*
+}
+
+# ================================================================
+# M A I N
+# ================================================================
+case "$1" in
+           -h|-help|--help|\/?|?|'' ) if [ "$2" = "" ]; then
+                                       Usage
+                                       exit 0
+                                   fi ;;
+esac
+
+export OWNER="%"
+export PL_OBJ_NAME=""
+export PL_OBJ_TYPE="AND object_type like '%%'"
+export SYS="--"
+export RUN=""
+
+while getopts a:o:n:t:s o
+do      case "$o" in
+                a)  case "$OPTARG" in
+                       l|list ) RUN=ProcList			;;
+                       t|text ) RUN=ListProcText 	;;
+                    esac                          ;;
+                o)  OWNER=`echo $OPTARG | tr [a-z] [A-Z]`       ;;
+                n)  PL_OBJ_NAME=`echo $OPTARG | tr [a-z] [A-Z]` ;;
+                t)  PL_OBJ_TYPE=`echo $OPTARG | tr [a-z] [A-Z]`
+                    if [ "$PL_OBJ_TYPE" = "BODY" ]; then
+                       PL_OBJ_TYPE="PACKAGE BODY"
+                    fi ;;
+                s)  SYS="AND owner NOT IN ('CTXSYS','EXFSYS','MDSYS','ORDSYS','OWNER','PUBLIC','SYS','OWNER','SYS','SYSMAN','SYSTEM','WMSYS','XDB','SQLTXPLAIN','DMSYS','TSMSYS','DBSNMP','OLAPSYS')"      ;;
+                *)  Usage
+                    exit 1 ;;
+        esac
+done
+shift $(($OPTIND - 1))
+
+$RUN 

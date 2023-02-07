@@ -1,0 +1,944 @@
+#!/usr/bin/ksh 
+
+#-----------------------------------------------------
+# Usage
+#-----------------------------------------------------
+Usage () {
+
+   printf '\n USAGE:	run_sheck.sh ORACLE_SID [ del | add | <sid> | -m ]\n'
+   printf '\n\t del|add <sid>'
+   printf '\n\t <sid> [<MAIL_LIST>]'
+   printf '\n\t -m <sid> <Checks>'
+   printf '\n\n\t Possible Checks:'
+   printf '\n\t ----------------'
+   printf '\n\t Usage'
+   printf '\n\t CompDown'
+   printf '\n\t DisksCheck'
+   printf '\n\t NetappCheck'
+   printf '\n\t StorageCheck'
+   printf '\n\t InstDown'
+   printf '\n\t LsnrDown'
+   printf '\n\t DBConnect'
+   printf '\n\t OracleCheck_TBS'
+   printf '\n\t OracleCheck_Next'
+   printf '\n\t OracleCheck_Lock'
+   printf '\n\t OracleCheck_Rate'
+   printf '\n\t OracleCheck_Invalid'
+   printf '\n\t OracleCheck_NoOrd'
+   printf '\n\t ObjSizeUpd'
+   printf '\n\t AlertCheck'
+   printf '\n\t RootMsgs'
+   printf '\n\t SendAlive'
+   printf '\n\t CheckVarBkup'
+   printf '\n\t HardWere_chk'
+   printf '\n\t RunCheckCtrl'
+   printf '\n\t CheckMaxVer\n\n'
+
+exit
+}
+
+#-----------------------------------------------------
+# Set needed enviment variebles
+#-----------------------------------------------------
+SetEnv () {
+
+export ORACLE_SID=$1 					
+export ORACLE_HOME=`grep -i $ORACLE_SID /etc/oratab | awk -F: '{print $2}'` 
+export SQLPLUS=${ORACLE_HOME}/bin/sqlplus
+export LD_LIBRARY_PATH=${ORACLE_HOME}/lib:/usr/openwin/lib:/usr/local/lib
+export ORACLE_ADM=/oracle/admin/${ORACLE_SID}
+export COMP=`hostname`
+export LOG_FILE=/var/oracle/run_checks/Run_check.log
+export BKUP_LOG_DIR=/var/backup/
+export ORACLE_MON=/oracle/ENV/MON
+export Status="OK"
+export HOUR=`date '+%H'`
+export MINUTE=`date '+%M'`
+export RATE_LOOP=1
+export SENDMAIL=${ORACLE_MON}/orasendmail
+
+   if [ "$MAN" != "Y" ] ; then
+	echo $ORACLE_SID
+	echo $ORACLE_HOME
+	echo $SQLPLUS
+	echo $LD_LIBRARY_PATH
+	echo $ORACLE_ADM
+	echo $COMP
+	echo $LOG_FILE
+	echo $BKUP_LOG_DIR
+	echo $ORACLE_MON
+	echo $Status
+	echo $HOUR
+	echo $MINUTE
+	echo $RATE_LOOP
+	echo $SENDMAIL
+   fi
+
+# Cross reference check:
+case $ORACLE_SID in
+   imlp) export CROSS_SIDS=dwhp 
+	 echo $CROSS_SIDS
+	 ;;
+   dwhp) export CROSS_SIDS=imlp
+	 echo $CROSS_SIDS
+	 ;;
+      *) export CROSS_SIDS="" ;;
+esac
+}
+
+#----------------------------------------------------
+# Send any error message using postie
+#----------------------------------------------------
+SendMail () {
+echo "`date` - Send mail"
+echo $TITLE
+echo $MESSAGE
+   $SENDMAIL "$TITLE" "$MESSAGE" $1
+}
+
+#-----------------------------------------------------
+#
+#-----------------------------------------------------
+CompDown () {
+echo "`date` - Start CompDown"
+
+if [ -a ${ORACLE_MON}/Checks/${CROSS_SIDS} ] ; then
+   case $COMP in
+      barvuz ) CHECK_COMP=hobart  ;;
+      hobart ) CHECK_COMP=barvuz  ;;
+      noosa.int.incredimail.com ) CHECK_COMP=barvuz  ;;
+      *      ) echo "UnKnown Computer ! ! !" ;;
+   esac
+
+   ping -c 1 $CHECK_COMP > /dev/null 2>&1
+
+   if [ $? -ne 0 ] ; then
+      if [ "$MAN" = "Y" ] ; then
+         printf '\n\t %s %s %s\n\n' "`date` - " "${CHECK_COMP}" " id is DOWN!!!"
+      else
+         TITLE="${CHECK_COMP} id DOWN! - `date`"
+         MESSAGE="${CHECK_COMP} id DOWN ! ! !"
+         SendMail 4
+      fi
+   else
+      if [ "$MAN" = "Y" ] ; then
+	 printf '\n\t %s %s %s\n\n' "`date` - " "${CHECK_COMP}" " id is UP!!!"
+      fi
+   fi
+fi
+}
+
+#-----------------------------------------------------
+# Check for Disk space problems
+#-----------------------------------------------------
+DisksCheck () {
+echo "`date` - Start DisksCheck"
+
+for DISKCHECK in `cat /etc/fstab |egrep -v "^#|sda1|^none|swap|media|nfs|oracle_arch" |awk '{print $2}'`
+do
+   PST=`df -k $DISKCHECK | grep -v ^Filesystem | awk '{print $5}' | cut -d% -f1`
+
+   if [ $PST -ge 94 ] ; then
+echo $?
+      case $MAN in
+        Y ) printf '\n%s\n\n' "ERROR: Filesystem $DISKCHECK is ${PST}% Full!!!" ;;
+        * ) echo "Filesystem $DISKCHECK is ${PST}% Full!!!"
+            export TITLE="DisksCheck `date` - $COMP - Filesystem $DISKCHECK is ${PST}% Full!!!"
+            export MESSAGE="FileSytem $DISKCHECK is ${PST}% Full -- CHECK!!!"
+            SendMail 3 ;;
+      esac
+   else
+      case $MAN in
+        Y ) if [ $PST -le 94 ] ; then
+	       printf '%s%s\t\t\t%s\n' "    " "Filesystem $DISKCHECK" " ${PST}% Full" 
+	    else
+	       printf '%s%s\t\t\t%s\n' "ERR " "Filesystem $DISKCHECK" " ${PST}% Full" 
+	       printf '%s\n'	       "--- ---------- --------------------------"
+	    fi ;;
+      esac
+   fi
+done
+}
+
+#-----------------------------------------------------
+# Check for Disk space problems
+#-----------------------------------------------------
+NetappCheck () {
+if [ "$MAN" = "Y" ]; then
+   echo -en "\n\t===================\n\tNetapp Spase Report\n\t===================\n\n"
+else
+   echo -en "\n`date` - Start NetappCheck\n\n"
+fi
+
+for NETAPP in `cat /etc/fstab |egrep -v "^#|\/netapp"|egrep "nfs"|awk '{print $2}'|grep -v storage`
+do
+   PST=`/bin/df -P $NETAPP | grep $NETAPP | awk '{print $5}' | cut -d% -f1`
+
+#   SNAP_NO=`rsh -l root netapp snap list | grep 'incredimail\.' | wc -l`
+if [ -d ${NETAPP}/.snapshot ] ; then
+   SNAP_NO=`ls ${NETAPP}/.snapshot | wc -l`
+else
+   SNAP_NO=0
+fi
+
+   if [ $PST -ge 78 ] ; then
+   case $MAN in
+      Y ) echo -en "\n\nERROR - NetApp - SPACE problem - ${NETAPP} - is ${PST}% full!!!\n" ;;
+      * ) TITLE="ERROR - NetApp SPACE problem `date` - $COMP - ${NETAPP} - ${PST}%"
+          MESSAGE="FileSytem ${NETAPP} is ${PST}% full No. of snaps: ${SNAP_NO}."
+          SendMail 1 ;;
+   esac
+   elif [ $SNAP_NO -gt 5 -a $PST -ge 93 ] ; then
+      case $MAN in
+         Y ) echo -en "\n\nERROR - NetApp ($NETAPP) - NO of Snaps - ${SNAP_NO} \n" ;;
+         * ) TITLE="NETAPP NO of Snaps problem `date` - $COMP - No. of snaps: ${SNAP_NO}"
+             MESSAGE="FileSytem /netapp is ${PST}% full, No. of snaps: ${SNAP_NO}"
+             SendMail 3 ;;
+      esac
+   else
+      case $MAN in
+         Y ) echo -en "\nVolume: ($NETAPP) is ${PST}% full = OK" ;;
+      esac
+   fi
+done
+if [ "$MAN" = "Y" ]; then
+   echo -en "\n\n"
+fi
+}
+
+#-----------------------------------------------------
+# Check for Disk space problems
+#-----------------------------------------------------
+StorageCheck () {
+if [ "$MAN" = "Y" ]; then
+   echo -en "\n\t====================\n\tStorage Spase Report\n\t====================\n\n"
+else
+   echo -en "\n`date` - Start StorageCheck\n\n"
+fi
+
+for STORAGE in `cat /etc/fstab |egrep -v "^#|\/netapp"|egrep "nfs"|grep storage|awk '{print $2}'`
+do
+   PST=`/bin/df -P $STORAGE | grep $STORAGE | awk '{print $5}' | cut -d% -f1`
+
+   if [ $PST -ge 95 ] ; then
+      case $MAN in
+         Y ) echo -en "\nERROR - Storage - SPACE problem - ${STORAGE} - ${PST}% \n" ;;
+         * ) TITLE="ERROR - Storage  SPACE problem `date` - $COMP - ${STORAGE} - ${PST}%"
+             MESSAGE="FileSytem ${STORAGE} is ${PST}% full."
+             SendMail 1 ;;
+      esac
+   else
+      case $MAN in
+         Y ) echo -en "\nSTORAGE: ($STORAGE) is ${PST}% full = OK" ;;
+      esac
+   fi
+done
+if [ "$MAN" = "Y" ]; then
+   echo -en "\n\n"
+fi
+}
+
+#-----------------------------------------------------
+# Check if the oracle instace is up
+#-----------------------------------------------------
+InstDown () {
+echo "`date` - Start InstDown"
+
+ls $ORACLE_HOME/dbs/ | grep -i lk${ORACLE_SID} > /dev/null
+
+if [ $? -ne 0 ] ; then
+   ps -ef | grep pmon | grep -i $ORACLE_SID
+
+   if [ $? -ne 0 ] ; then
+      DB_UP=`echo "show user" | $SQLPLUS -s / | awk '{print $1}'`
+
+      if [ "X${DB_UP}" != "XUSER" ] ; then
+#         echo "URGENT ! ! ! -- $COMP - $ORACLE_SID is DOWN ! ! !"
+         Status="Fail"
+         TITLE="InstDown `date` - URGENT ! ! ! -- $COMP - $ORACLE_SID is DOWN ! ! !"
+         MESSAGE="Oracle Instance: ---- $ORACLE_SID  ---- IS Down !! !! !!"
+         SendMail 4
+      fi
+   fi
+fi
+
+# Cross Instance Checking:
+for SID in $CROSS_SIDS
+do
+   if [ -a ${ORACLE_MON}/Checks/${CROSS_SIDS} ] ; then
+      DB_UP=`echo "show user" | $SQLPLUS -s qcentral/qcentral@${SID} | awk '{print $1}'`
+
+      if [ "X${DB_UP}" != "XUSER" ] ; then
+         echo "URGENT ! ! ! - UnAble to connect to: $SID ! ! !"
+         TITLE="InstDown `date` - URGENT ! ! ! - UnAble to connect to: $SID ! ! !"
+         MESSAGE="No connection to: ---- $SID  ----  !! !! !!"
+         SendMail 4
+      fi
+   fi
+done
+}
+
+#-----------------------------------------------------
+# Check if the Listener is up
+#-----------------------------------------------------
+LsnrDown () {
+echo "`date` - LsnrDown"
+
+   $ORACLE_HOME/bin/lsnrctl stat > /dev/null 2>&1
+
+   if [ $? -ne 0 ] ; then
+#      echo "URGENT ! ! ! -- $COMP - Lisner for: $ORACLE_SID is DOWN ! ! !"
+      TITLE="LsnrDown  `date` - URGENT ! ! ! -- $COMP - Listener for: $ORACLE_SID is DOWN ! ! !"
+      MESSAGE="The Listener of: ---- $ORACLE_SID  ---- IS Down !! !! !!"
+      SendMail 3
+   fi
+}
+
+#-----------------------------------------------------
+# Check  Connection to db
+#-----------------------------------------------------
+DBConnect () {
+echo "`date` - DBConnect"
+
+DB_UP=`echo "show user" | $SQLPLUS -s system/canbara@${ORACLE_SID}_tcp | awk '{print $1}'`
+
+if [ "X${DB_UP}" != "XUSER" ] ; then
+echo "URGENT ! ! ! -- $COMP - UnAble to connect to: $ORACLE_SID ! ! !"
+   TITLE="DBConnect `date` - URGENT ! ! ! -- $COMP - UnAble to connect to: $ORACLE_SID ! ! !"
+   MESSAGE="No connection to: ---- $ORACLE_SID  ----  !! !! !!"
+   SendMail 4
+fi
+}
+
+#-----------------------------------------------------
+# Oracle checks:
+#	1. Table space problems
+#	2. Next extent problems
+#	3. Locks
+#	4. Commit rate
+#-----------------------------------------------------
+#-----------------------------------------------------
+# Check TBS space
+#-----------------------------------------------------
+OracleCheck_TBS () {
+echo "`date` - OracleCheck - TBS"
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set pages 0 feed off echo off verify off lines 140
+SELECT RPAD(d.tablespace_name,40,'_')||NVL(ROUND(f.bytes/a.bytes*100,0),0)||'%'||chr(13)
+  FROM sys.dba_tablespaces d,
+       (SELECT   tablespace_name, SUM(bytes) bytes
+            FROM dba_data_files
+        GROUP BY tablespace_name) a,
+       (SELECT   tablespace_name, SUM(bytes) bytes
+            FROM dba_free_space
+        GROUP BY tablespace_name) f,
+       (SELECT   tablespace_name, MAX(bytes) large
+            FROM dba_free_space
+        GROUP BY tablespace_name) l
+ WHERE d.tablespace_name = a.tablespace_name(+)
+   AND d.tablespace_name = f.tablespace_name(+)
+   AND d.tablespace_name = l.tablespace_name(+)
+   AND NOT d.contents LIKE 'TEMPORARY'
+   AND NVL (ROUND(f.bytes/a.bytes*100,0),0) <= 5;
+*EOF*
+`
+
+if [ "X${TMP_ORACLE}" != "X" ] ; then
+COMP=`echo $COMP |awk -F. '{print $1}' | tr 'a-z' 'A-Z'`
+   TITLE="OracleCheck_TBS - `date` - from $COMP - Tablespaces with less than 5% free space. SID = $ORACLE_SID"
+   MESSAGE="${TMP_ORACLE}"
+   SendMail 2
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+   set pages 0 feed off echo off verify off lines 140
+SELECT * FROM (
+SELECT * FROM (
+ SELECT rownum AS rank
+    FROM (SELECT NVL(ROUND(f.bytes/a.bytes*100,0),0) PCT_FREE
+   FROM sys.dba_tablespaces d,
+        (SELECT   tablespace_name, SUM(bytes) bytes
+             FROM dba_data_files
+         GROUP BY tablespace_name) a,
+        (SELECT   tablespace_name, SUM(bytes) bytes
+             FROM dba_free_space
+         GROUP BY tablespace_name) f,
+        (SELECT   tablespace_name, MAX(bytes) large
+             FROM dba_free_space
+         GROUP BY tablespace_name) l
+  WHERE d.tablespace_name = a.tablespace_name(+)
+    AND d.tablespace_name = f.tablespace_name(+)
+    AND d.tablespace_name = l.tablespace_name(+)
+    AND NOT d.contents LIKE 'TEMPORARY'
+    AND NVL (ROUND(f.bytes/a.bytes*100,0),0) <= 1
+  ORDER BY pct_free) ts)
+ ORDER BY 1 DESC)
+WHERE rownum = 1;
+*EOF*
+`
+   if [ "${TMP_ORACLE}" = "" ]; then
+      TMP_ORACLE=100
+   elif [ ${TMP_ORACLE} -le 1 ] ; then
+      TITLE="! ! ! OracleCheck_TBS - `date` - $COMP - There are $TMP_ORACLE Tablespaces with less than 1% free space in $ORACLE_SID"
+      SendMail 3
+   fi
+fi      
+}
+
+#----------------------------------------------------
+# Oracle checks: Next Ext.
+#----------------------------------------------------
+OracleCheck_Next () {
+echo "`date` - OracleCheck - Next Extents"
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set pages 0 feed off echo off verify off lines 200
+col Tablespace for a25
+col type for a8
+col "Object Name" for a50
+col "Required Extent(K)" for a15
+col "MaxAvail K" for a15
+select  b.tablespace_name "Tablespace",
+        b.segment_type "Type",
+        substr(ext.owner||'-'||ext.segment_name,1,50) "Object Name",
+        To_Char(decode(freespace.Extent_Management,'DICTIONARY',decode(b.extents,1,b.next_extent, ext.bytes * (1+b.pct_increase/100)),'LOCAL',decode( freespace.Allocation_Type,'UNIFORM',freespace.INITIAL_EXTENT,'SYSTEM',ext.bytes))/1024,'9,999,999,999') "Required Extent(K)",
+        to_char(freespace.largest/1024,'9,999,999,999') "MaxAvail K"
+ from dba_segments b,
+      dba_extents ext,
+     (select B.tablespace_name, B.Extent_Management, B.Allocation_Type, B.INITIAL_EXTENT, B.NEXT_EXTENT, max(A.bytes) largest
+      from   dba_free_space A, dba_tablespaces B
+      Where B.Tablespace_Name = A.Tablespace_Name
+      And B.Status='ONLINE'
+      group by B.tablespace_name, B.Extent_Management, B.Allocation_Type, B.INITIAL_EXTENT, B.NEXT_EXTENT
+      ) freespace
+ where
+        b.owner=ext.owner and
+        b.segment_type=ext.segment_type and
+        b.segment_name=ext.segment_name and
+        b.tablespace_name= ext.tablespace_name and
+        (b.extents-1) =ext.extent_id and
+        b.tablespace_name = freespace.tablespace_name and
+        decode(freespace.Extent_Management,'DICTIONARY',decode(b.extents,1,(b.next_extent),ext.bytes*(1+b.pct_increase/100)),'LOCAL',decode(freespace.Allocation_Type,'UNIFORM',freespace.INITIAL_EXTENT,'SYSTEM',ext.bytes)) > freespace.largest
+order by b.Tablespace_Name,b.Segment_Type,b.Segment_Name
+/
+*EOF*
+`
+TMP_ORACLE=`echo ${TMP_ORACLE} | cut -d'.' -f2` 
+echo $TMP_ORACLE
+
+if [ "X${TMP_ORACLE}" != "X" ] ; then
+   TITLE="OracleCheck_Next - `date` - $COMP - Objects with Next extent problems in $ORACLE_SID !"
+   MESSAGE=`echo $TMP_ORACLE | sed 's/\^/\\\n/g'`
+   SendMail 2
+fi      
+}
+
+#----------------------------------------------------
+# Oracle checks: Lock session
+#----------------------------------------------------
+OracleCheck_Lock () {
+echo "`date` - OracleCheck - Locks"
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set pages 0 echo off feedback off verify off serverout on
+DECLARE
+   countsid 		NUMBER;
+BEGIN
+   SELECT SUM(COUNT(*)) INTO countsid
+   FROM v\\$lock a , v\\$lock b
+   WHERE a.id1=b.id1
+   AND   a.id2=b.id2
+   AND   a.request=0
+   AND   b.lmode=0
+   GROUP BY a.sid,b.sid
+   HAVING COUNT(*) > 0 ;
+   DBMS_OUTPUT.PUT_LINE(countsid);
+EXCEPTION
+	WHEN	NO_DATA_FOUND	THEN
+		DBMS_OUTPUT.PUT_LINE('0');
+	WHEN	OTHERS	THEN
+		DBMS_OUTPUT.PUT_LINE('99');
+end;
+/
+*EOF*
+`
+echo "1. =================== TMP_ORACLE = $TMP_ORACLE ============================="
+if [ ${TMP_ORACLE} -gt 0 ] ; then
+sleep 15
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set pages 0 echo off feedback off verify off serverout on
+DECLARE
+   countsid             NUMBER;
+BEGIN
+   SELECT SUM(COUNT(*)) INTO countsid
+   FROM v\\$lock a , v\\$lock b
+   WHERE a.id1=b.id1
+   AND   a.id2=b.id2
+   AND   a.request=0
+   AND   b.lmode=0
+   GROUP BY a.sid,b.sid
+   HAVING COUNT(*) > 0 ;
+   DBMS_OUTPUT.PUT_LINE(countsid);
+EXCEPTION
+        WHEN    NO_DATA_FOUND   THEN
+                DBMS_OUTPUT.PUT_LINE('0');
+        WHEN	OTHERS	THEN
+        	DBMS_OUTPUT.PUT_LINE('99');
+end;
+/
+*EOF*
+`
+echo "2. =================== TMP_ORACLE = $TMP_ORACLE ============================="
+   if [ ${TMP_ORACLE} -gt 0 ] ; then
+      TITLE="OracleCheck_Lock  - `date` - $COMP - There are $TMP_ORACLE Session LOCKs in $ORACLE_SID !"
+      MESSAGE="The number of locked session is: ${TMP_ORACLE}"
+      SendMail 1
+   fi
+fi
+}
+
+#----------------------------------------------------
+# Oracle checks: Commit rate
+#----------------------------------------------------
+OracleCheck_Rate () {
+echo "`date` - OracleCheck - Commit Rate"
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set serverout on feedback off
+DECLARE
+   time_1 BINARY_INTEGER;
+   time_2 BINARY_INTEGER;
+   time_3 BINARY_INTEGER;
+   value_1 NUMBER;
+   value_2 NUMBER;
+   value_3 NUMBER;
+BEGIN
+   time_1 := DBMS_UTILITY.GET_TIME;
+   SELECT value INTO value_1
+   FROM   v\\$sysstat
+   where STATISTIC# = 4;
+
+accusleep(1);
+   time_2 := DBMS_UTILITY.GET_TIME;
+   SELECT value INTO value_2
+   FROM   v\\$sysstat
+   where STATISTIC# = 4;
+
+accusleep(1);
+   time_3 := DBMS_UTILITY.GET_TIME;
+   SELECT value INTO value_3
+   FROM   v\\$sysstat
+   where STATISTIC# = 4;
+
+DBMS_OUTPUT.PUT_LINE (ROUND((((value_2 - value_1)/(time_2 - time_1)+(value_3 - value_2)/(time_3 - time_2))/2)*100));
+end;
+/
+*EOF*
+`
+TMP_ORACLE=`echo ${TMP_ORACLE} | cut -d'.' -f2`
+
+if   [[ ${TMP_ORACLE} -ge 0 && ${TMP_ORACLE} -lt 5 && $RATE_LOOP -eq 1 ]] ; then
+   export RATE_LOOP=2
+   OracleCheck_Rate
+elif [[ ${TMP_ORACLE} -ge 0 && ${TMP_ORACLE} -lt 5 && $RATE_LOOP -eq 2 ]] ; then
+   TITLE="OracleCheck_Rate  `date` - $COMP - The Commit rate is ${TMP_ORACLE} per sec.!"
+   MESSAGE="The commit rate is: ${TMP_ORACLE}"
+   SendMail 3
+fi
+echo "--- TMP_ORACLE = $TMP_ORACLE ---- RATE_LOOP = $RATE_LOOP ---"
+}
+
+#----------------------------------------------------
+# Oracle checks: Invalid Objects
+#----------------------------------------------------
+OracleCheck_Invalid () {
+printf '%s\n\n'  "`date` - OracleCheck - Invalid Objects."
+SEND_MAIL=N
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set pages 0 echo off verify off feedback    off
+  SELECT owner||' - '||object_name||' - '||object_type||' - '||status||'^'
+  FROM   dba_objects
+  WHERE  status='UNUSABLE' OR status='INVALID'
+  AND    (owner = 'IM_SCHEMA' OR owner = 'IMPROC' OR owner = 'DW_SCHEMA' OR owner = 'NEODW' OR owner= 'NDWPROC')
+  AND    object_name NOT IN ('MV_ORDERS_BY_CUST_EMAILSUFF','MV_ORDERS_BY_GIFT_EMAILSUFF')
+  AND    object_type <> 'MATERIALIZED VIEW'
+union all
+  SELECT owner||' - '||index_name||' - '||index_type||' - '||status||'^'
+  FROM   dba_indexes
+  WHERE  status='UNUSABLE' OR status='INVALID'
+  AND    (owner = 'IM_SCHEMA' OR owner = 'IMPROC' OR owner = 'DW_SCHEMA' OR owner = 'NEODW' OR owner= 'NDWPROC')
+/
+*EOF*
+`
+PROC_OBJ=`$SQLPLUS -s / << *EOF*
+set pages 0 echo off verify off feedback    off
+  SELECT owner||' - '||object_name||' - '||object_type||' - '||status||'^'
+  FROM   dba_objects
+  WHERE  status='UNUSABLE' OR status='INVALID'
+  AND    object_type in ('PACKAGE','PACKAGE BODY','FUNCTION')
+  AND    (owner = 'IMPROC' or owner = 'DW_SCHEMA' OR owner = 'NDWPROC')
+/
+*EOF*
+`
+EMP_SYN=`$SQLPLUS -s / << *EOF*
+set pages 0 echo off verify off feedback    off
+Select OWNER||'.'||s.synonym_name||' - '||s.TABLE_OWNER||' - '||s.TABLE_NAME||'^'
+From dba_synonyms  s
+Where table_owner not in('SYSTEM','SYS')
+And OWNER not in ('PUBLIC')
+And db_link is null
+And not exists
+     (select  1
+      From dba_objects o
+      Where s.table_owner=o.owner
+      And s.table_name=o.object_name)
+ Order by 1
+/
+*EOF*
+`
+# TMP_ORACLE=""" $TMP_ORACLE"
+#   -m ) TMP_ORACLE=`echo -en $TMP_ORACLE | sed 's/\^/" "/g'`
+# TMP_ORACLE=`echo ${TMP_ORACLE} | cut -d'.' -f2`
+case $1 in
+   -m ) TMP_ORACLE=`echo -en $TMP_ORACLE | sed 's/\^/\\\n/g'`
+	PROC_OBJ=`echo -en $PROC_OBJ | sed 's/\^/\\\n/g'`
+ 	EMP_SYN=`echo $EMP_SYN | sed 's/\^/\\\n/g'`
+	echo -en "\n$TMP_ORACLE\n"
+	echo -en "\n$PROC_OBJ\n"
+	echo -en "\n$EMP_SYN\n"
+ 	;;
+    * ) if [ "X${TMP_ORACLE}" != "X" ] ; then
+	   SEND_MAIL=Y
+	fi
+	if [ "X${PROC_OBJ}" != "X" ] ; then
+	      . ${ORACLE_MON}/recomp_invalid.sh $ORACLE_SID > /var/oracle/invalid/recomp_invalid.log.$$ 2>&1 & 
+	   SEND_MAIL=Y
+	fi
+	if [ "X${EMP_SYN}" != "X" ] ; then
+	   SEND_MAIL=Y
+        fi
+	if [ "$SEND_MAIL" = "Y" ] ; then
+   	   TITLE="OracleCheck_Invalid `date` - $COMP - There are invalid OBJECTS in $ORACLE_SID"
+   	   MESSAGE1=`echo $TMP_ORACLE | sed 's/\^/\\\n/g'`
+	   MESSAGE2=`echo -en $PROC_OBJ | sed 's/\^/\\\n/g'`
+	   MESSAGE3=`echo $EMP_SYN | sed 's/\^/\\\n/g'`
+	   MESSAGE="$MESSAGE1 $MESSAGE2 $MESSAGE3"
+   	   SendMail 1
+	fi
+	;;
+esac
+}
+
+#----------------------------------------------------
+# Oracle checks: No order in las 30 min
+#----------------------------------------------------
+OracleCheck_NoOrd () {
+echo "`date` - OracleCheck - No order in last 30 min."
+
+TMP_ORACLE=`$SQLPLUS -s /  << *EOF*
+set pages 0 echo off verify off feedback    off
+   SELECT CEIL((SYSDATE - order_create_date) * 1440) 
+   FROM im_schema.im_orders
+   WHERE db_order_id = (SELECT MAX (db_order_id) FROM im_schema.im_orders)
+/
+*EOF*
+`
+TMP_ORACLE=`echo ${TMP_ORACLE} | cut -d'.' -f2`
+echo "Last order was: $TMP_ORACLE min. ago."
+if [ ${TMP_ORACLE} -gt 30 ] ; then
+   TITLE="OracleCheck_NoOrd `date` - No order for more then 30 Min."
+   MESSAGE="Last order was $TMP_ORACLE Min. ago!"
+   SendMail 6
+fi
+}
+
+#----------------------------------------------------
+#
+#----------------------------------------------------
+CheckMaxVer () {
+echo "`date` - CheckMaxVer"
+
+TMP_ORACLE=`$SQLPLUS -s / << *EOF*
+set pages 0 echo off verify off feedback off
+select max(count(*))  v
+from   sys.x_\\$kglcursor
+where  inst_id = userenv('Instance') 
+and    kglhdadr != kglhdpar
+group  by kglhdpar, kglnahsh
+/
+*EOF*
+`
+TMP_ORACLE=`echo ${TMP_ORACLE} | cut -d'.' -f2`
+echo "MaxVer = ${TMP_ORACLE}"
+
+if [ ${TMP_ORACLE} -gt 30 ] ; then
+$SQLPLUS -s /nolog << *EOF*
+conn system/canbara
+alter system flush shared_pool
+/
+*EOF*
+
+#   TITLE="CheckMaxVer `date` - Max SQL Cursor ver. is ${TMP_ORACLE}"
+#   MESSAGE="Shared pool was flushed!"
+#   SendMail 4
+fi
+}
+
+#----------------------------------------------------
+# Update Object size table
+#----------------------------------------------------
+ObjSizeUpd () {
+echo "`date` - ObjSizeUpd."
+
+$SQLPLUS -s /   << *EOF*
+set pages 0 echo off verify off feedback    off
+set serverout on size 1000000
+DECLARE
+   CURSOR obj_list IS
+        SELECT segment_name, sum(bytes/1024/1024) MB, trunc(sysdate)
+        FROM   dba_segments
+        WHERE owner = 'IM_SCHEMA'
+        AND (segment_type = 'INDEX' or segment_type = 'TABLE' or segment_type = 'TABLE PARTITION')
+        GROUP BY segment_name;
+
+BEGIN
+
+   FOR rec_obj_list IN obj_list LOOP
+        EXECUTE IMMEDIATE 'INSERT INTO im_schema.obj_size_log VALUES ('''||rtrim(rec_obj_list.segment_name)||''','||rec_obj_list.MB||','''||trunc(SYSDATE)||''')';
+   END LOOP;
+   
+   COMMIT;
+
+END;
+/
+*EOF*
+}
+
+#----------------------------------------------------
+# Oracle alert file check
+#----------------------------------------------------
+AlertCheck () {
+echo "`date` - AlertCheck"
+
+ALRT_FILE=${ORACLE_ADM}/bdump/alert_${ORACLE_SID}.log
+ALRT_FILE_HIST=${ORACLE_ADM}/bdump/history_alert_${ORACLE_SID}.log
+
+\egrep "ORA-1653|ORA-1654|error 19502|Archiving not possible" ${ALRT_FILE}
+if [ $? -eq 0 ] ; then
+   TITLE="$ORACLE_SID: Critical Error! -  `date`"
+   MESSAGE="See alert file history! Possible Errors: ORA-1653, ORA-1654, error 19502 ,Archiving not possible"
+   SendMail 3
+   cat   ${ALRT_FILE}  >> ${ALRT_FILE_HIST}
+   \rm ${ALRT_FILE}
+   touch ${ALRT_FILE}
+else
+   ALERTS=`\egrep "ORA-|^Errors" ${ALRT_FILE}`
+
+   if [ "X${ALERTS}" != "X" ] ; then
+      TITLE="AlertCheck `date` - Errors in Alert file for instance: $ORACLE_SID"
+      MESSAGE="$ALERTS"
+      SendMail 1
+      cat   ${ALRT_FILE} 	>> ${ALRT_FILE_HIST}
+      \rm ${ALRT_FILE}
+      touch ${ALRT_FILE}
+   fi
+fi
+}
+
+#----------------------------------------------------
+# Root error message check once a day
+#----------------------------------------------------
+RootMsgs () {
+echo "`date` - RootMsgs"
+
+   ROOT_MSGS=`cat /var/log/messages | egrep -v "running psvc_fan_fault_check_policy_0|daemon.error] I/O error|sendmail|last message repeated" | cut -f4- -d' ' | sort -u`
+
+   if [ "X${ROOT_MSGS}" != "X" ] ; then
+      TITLE="RootMsgs    `date` - ROOT Alerts for HOST: $ORACLE_SID "
+      MESSAGE="$ROOT_MSGS"
+      SendMail 1
+   fi
+}
+
+#----------------------------------------------------
+# Send is alive 
+#----------------------------------------------------
+SendAlive () {
+echo "`date` - SendAlive"
+
+   TITLE="SendAlive  `date` - Send Alive"
+   MESSAGE="The check proccess can send mail."
+   SendMail 1
+}
+
+#----------------------------------------------------
+# Oracle Backup Logs Check
+#----------------------------------------------------
+CheckVarBkup () {
+echo "`date` - Check Backups"
+
+cd $BKUP_LOG_DIR
+
+ls DB_backup_arch.* > /dev/null 2>&1
+if [ $? -eq 0 ] ; then
+   for BK_LOG_FILE in `find . -mtime 0 -name "DB_backup_arch.*" | tail -2`
+   do
+      /usr/bin/grep "RMAN-00569" $BK_LOG_FILE > /dev/null 2>&1
+      if [ $? -eq 0 ] ; then
+         TITLE="Arch Bkup `date` - Archive Backup error in file: $BK_LOG_FILE"
+         MESSAGE="egrep "fatal error|error encountered|error running|ORACLE error" $BK_LOG_FILE"
+         SendMail 1
+      fi
+   done
+fi
+
+ls DB_hot_backup_lvl* > /dev/null 2>&1
+if [ $? -eq 0 ] ; then
+   for BK_LOG_FILE in `find . -mtime 0 -name "DB_hot_backup_lvl*" | tail -2`
+   do
+      /usr/bin/grep "ERROR MESSAGE STACK FOLLOWS" $BK_LOG_FILE > /dev/null 2>&1
+      if [ $? -eq 0 ] ; then
+         TITLE="Hot Bkup `date` - Hot Backup error in file: $BK_LOG_FILE"
+         MESSAGE=`egrep "fatal error|error encountered|error running|ORACLE error" $BK_LOG_FILE`
+         SendMail 1
+      fi
+   done
+fi
+}
+
+#----------------------------------------------------
+# 
+#----------------------------------------------------
+HardWere_chk () {
+echo "`date` - HardWere_chk"
+
+FREEMEM=`free | grep '\-\/+' | awk '{print $4}'`
+
+if [ $FREEMEM -lt 1000000 ] ; then
+   case $MAN in
+      Y  ) echo "`date` - ERROR: Free Memory on Noosa is: $FREEMEM" ;;
+      *  ) TITLE="`date` - ERROR: Free Memory on Noosa is: $FREEMEM"
+   	   MESSAGE="Check free memory on Noosa"
+   	   SendMail 1 ;;
+   esac
+elif [ "$MAN" = "Y" ] ; then
+   echo "`date` - Free Memory on Noosa is: $FREEMEM"
+fi
+
+}
+
+#----------------------------------------------------
+# 
+#----------------------------------------------------
+RunCheckCtrl () {
+echo "`date` - RunCheckCtrl Start $1 $2"
+case $1 in
+   del ) if [ -f ${ORACLE_MON}/Checks/${ORACLE_SID} ] ; then
+	    echo "`date` - Delete ${ORACLE_SID}" >> ${ORACLE_MON}/Checks/AddDel.log
+	    \rm -f ${ORACLE_MON}/Checks/${ORACLE_SID}
+	 fi ;;
+   add ) if [ ! -a ${ORACLE_MON}/Checks/${ORACLE_SID} ] ; then
+	    echo "`date` - Add ${ORACLE_SID}" >> ${ORACLE_MON}/Checks/AddDel.log
+	    touch ${ORACLE_MON}/Checks/${ORACLE_SID}
+	 fi ;;
+esac
+}
+
+#----------------------------------------------------
+# M A I N
+#----------------------------------------------------
+
+case "$1" in
+   -h|-help|--help|\/?|? ) if [ "$2" = "" ]; then
+                              Usage
+                              exit 0
+                           fi ;;
+esac
+
+export CHK_SID=""
+export INTERVAL=0
+export MAN="N"
+
+while getopts a:s:i: o
+do      case "$o" in
+        s)      export CHK_SID="$OPTARG"               ;;
+        a)      if [ "$CHK_SID" != "" ]; then
+                    SetEnv $CHK_SID
+                    RunCheckCtrl $OPTARG $CHK_SID
+                fi                                     ;;
+        i)      export INTERVAL="$OPTARG" ;;
+        *)      cecho "      Wronge argument!!!" boldred
+                Usage
+                exit 1 ;;
+        esac
+done
+shift $(($OPTIND - 1))
+# ================================================
+SetEnv $CHK_SID
+
+if [ -a ${ORACLE_MON}/Checks/${ORACLE_SID} ] ; then
+   if [ ! -f $LOG_FILE ] ; then
+      touch $LOG_FILE
+   fi
+fi
+
+echo "`date` - Start checking"
+
+# -- Checks that runs every time ---------------------------------------- #
+  if [ "X${ORACLE_SID}" = "Xdwhp" ] ; then
+   CompDown
+   DisksCheck
+   InstDown
+   HardWere_chk
+  else
+   echo "`date` - Not main DB"
+  fi
+   if [ "X${Status}" = "XOK" ] ; then
+    if [ "X${ORACLE_SID}" = "Xdwhp" ] ; then
+      LsnrDown
+      DBConnect
+#      AlertCheck
+    fi
+# -- Checks that runs every 15Min. ---------------------------------------- #
+echo TO_RUN = $TO_RUN for every 15Min
+      if [ $TO_RUN -eq 15 ] ; then
+echo "In every 15Min."
+	 OracleCheck_Lock
+  	 if [ "X${ORACLE_SID}" != "Xdwhp" ] ; then
+#      	    OracleCheck_Rate
+	    echo "In every 15Min."
+   	 fi
+      fi
+# -- Checks that runs every HOUR ---------------------------------------- #
+echo TO_RUN = $TO_RUN for Every 60 Min
+      if [ $TO_RUN -eq 60 ] ; then
+echo "Run Every 60 Min."
+         NetappCheck
+	 StorageCheck
+         OracleCheck_TBS
+         OracleCheck_Next
+	 OracleCheck_Invalid
+         if [ "X${ORACLE_SID}" = "Ximlp" ] ; then
+            OracleCheck_NoOrd
+         fi
+	 CheckMaxVer
+	 AlertCheck
+      fi
+# -- Checks that runs ONCE A DAY ---------------------------------------- #
+echo TO_RUN = $TO_RUN for Once A Day
+      if [ $TO_RUN -eq 1 ] ; then
+echo "Run Once A Day!"
+         SendAlive
+#	 OracleCheck_Invalid
+   	 if [ "X${ORACLE_SID}" != "Ximlp" ] ; then
+   	    ObjSizeUpd
+   	 fi
+#          RootMsgs
+#         CheckVarBkup
+      fi
+   fi
+
+echo "`date` - End Checking"
+fi
+

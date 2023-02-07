@@ -1,0 +1,72 @@
+#!/bin/bash
+
+sqlplus -s / << *EOF*
+SET LINES 200
+SET ECHO OFF
+SET VERI OFF
+-- SET FEED OFF
+SET COLSEP '|'
+COL elapsed_time FOR 9,999,999,999,999
+COL cpu_time FOR 9,999,999,999,999
+COL disk_reads_per_exec FOR a20
+
+SELECT
+       module,
+       INST_ID,
+       SID,
+       SERIAL#,
+       sql_text,
+       '------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------' line_sep,
+       '****** '||username||' *******' username,
+       disk_reads_per_exec||' <==' disk_reads_per_exec,
+       buffer_gets,
+       disk_reads,
+       parse_calls,
+       sorts,
+       executions,
+       rows_processed,
+       hit_ratio,
+       first_load_time,
+       sharable_mem,
+       persistent_mem,
+       runtime_mem,
+       cpu_time,
+       elapsed_time,
+       '== ******************************************************************************************************************************************************************************* ==' line_sep
+FROM
+  (SELECT
+        s.module,
+        o.INST_ID,
+        SID,
+        SERIAL#,
+        s.sql_text ,
+        username ,
+        round((s.disk_reads/decode(s.executions,0,1, s.executions)),2)  disk_reads_per_exec,
+        s.disk_reads ,
+        s.buffer_gets ,
+        s.parse_calls ,
+        s.sorts ,
+        s.executions ,
+        s.rows_processed ,
+        100 - round(100 *  s.disk_reads/greatest(s.buffer_gets,1),2) hit_ratio,
+        s.first_load_time ,
+        s.sharable_mem ,
+        s.persistent_mem ,
+        s.runtime_mem,
+        s.cpu_time,
+        s.elapsed_time
+  FROM
+        sys.gv_\$sql s,
+        gv\$session o
+  WHERE s.parsing_user_id      = o.USER#
+  AND   o.inst_id              = s.inst_id
+  AND   o.SQL_ID               = s.SQL_ID
+  AND   o.SQL_HASH_VALUE       = s.HASH_VALUE
+  AND   UPPER(o.username) NOT IN ('SYS','SYSTEM','OPS\$ORACLE','DBSMP')
+  AND   o.status               = 'ACTIVE'
+  AND    round((s.disk_reads/decode(s.executions,0,1, s.executions)),2) >= 0.4
+  ORDER BY 7 DESC
+  )
+WHERE ROWNUM <= 90
+/
+*EOF*

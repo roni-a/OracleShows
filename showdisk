@@ -1,0 +1,77 @@
+#!/bin/sh
+
+######################################################################
+# Script:    showdisk
+# Author:    Nirit Le., Amdocs
+# Date:      01/02
+# Update:
+#
+#######################################################################
+# Script Porpose: Show disks data 
+# Script Parameters:
+# SQL Scripts: 
+#######################################################################
+# Assuptions:
+#######################################################################
+
+unalias rm
+SORT=/usr/bin/sort
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h | -d  | -dsk | -lv "
+ echo "       }\n"
+ echo " -h     Help"
+ echo " -d     disk usgae per instance"
+ echo " -dsk   disk usgae per disk"
+ echo " -lv    logical volumes' sizes for a given volume group"
+ printf "\n\n"
+}
+
+###################################################################
+# LV Allocated for exist volume group 
+#
+LV ()
+{
+ /usr/sbin/vgdisplay -v $1 | egrep "LV Size|LV Name" | sed '
+ {
+        N
+        s/\n//
+ }' | awk ' { print $3,"-", $7, $6 }'
+}
+
+
+#########################################################################
+# MAIN
+#
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi
+  case $1 in
+    -h   ) Usage ;;
+    -d   ) $ORACLE_MON/showd ;; 
+    -dsk ) $ORACLE_MON/showdisks ;;
+    -lv  ) if [ $# -lt 2 ]
+             then echo "volume group should be specified"
+             else LV $2
+           fi
+           ;;
+    *    ) echo "Error: Wrong flag"
+           Usage
+           exit $ERROR
+           ;;
+  esac
+
+  exit $OK
+  

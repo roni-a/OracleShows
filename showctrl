@@ -1,0 +1,90 @@
+#!/usr/bin/ksh
+
+run_sql () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set pages 0 feedback off
+alter session set nls_date_format='DD-MON-RRRR HH24:MI:SS';
+
+SELECT 'Run AT: '||SYSDATE FROM dual;
+
+set pages 100 serverout on size 20000 feedback off lines 100
+
+-- CREATE TABLE tmp_im_control(
+--   ctrl_val VARCHAR(50));
+
+PROMPT
+PROMPT +-------------------------------+-----------------------+
+DECLARE
+   CURSOR cur_cntl IS
+        SELECT column_name 
+				FROM   all_tab_columns 
+				WHERE  owner = '${OUSER}' 
+				AND    table_name = '${TAB_NAME}'
+				AND    column_name LIKE upper('%${COL}%')
+				ORDER  BY column_name;
+
+	p_ctrl_val     VARCHAR(50); 
+	v_sql_text		 VARCHAR(1000);
+BEGIN
+   EXECUTE IMMEDIATE 'TRUNCATE TABLE tmp_im_control';
+   FOR rec_ctrl IN cur_cntl LOOP
+			  v_sql_text := 'INSERT INTO tmp_im_control SELECT '||rec_ctrl.column_name||' FROM ${OUSER}.${TAB_NAME} where ${COND_NAME} = ${TAG}${TAG}${COND_VALUE}${TAG}${TAG}';
+--				DBMS_OUTPUT.PUT_LINE(v_sql_text);
+        EXECUTE IMMEDIATE v_sql_text;
+        SELECT ctrl_val INTO p_ctrl_val
+        FROM tmp_im_control;
+        DBMS_OUTPUT.PUT_LINE('| '||rpad(rec_ctrl.column_name,30)||'|'||lpad(p_ctrl_val,22)||' |');
+	DBMS_OUTPUT.PUT_LINE('+-------------------------------+-----------------------+');
+        ROLLBACK;
+   END LOOP;
+EXCEPTION
+   WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR: '||sqlerrm||' !!!');
+END;
+/
+PROMPT
+-- DROP TABLE tmp_im_control;
+*EOF*
+}
+# ==================================================
+# M A I N
+# ==================================================
+
+OUSER=
+COL="%"
+TAB_NAME=
+COND_NAME=
+COND_TYPE=
+COND_VALUE=
+TAG=
+while getopts u:c:t:f:z:v: opt
+do
+	    case "$opt" in
+	       u  )  OUSER="$OPTARG"
+	              REM1='--'
+	             REM2=''
+	              ;;
+	       c  )  COL="$OPTARG"
+	              REM1=''
+	             REM2='--'
+	              ;;
+	       t  )  TAB_NAME="$OPTARG"
+	              REM1=''
+	             REM2='--'
+	              ;;
+	       f  )  COND_NAME="$OPTARG" ;;
+	       v  )  COND_VALUE="$OPTARG" ;;
+	       z  )  case "$OPTARG" in
+									n ) : 	;;
+									v ) TAG="'"
+													;;
+					 		 esac
+					 			;;
+	       * )  # unknown flag
+	              Usage
+	             exit 1             ;;
+	     esac
+	 done
+	 shift `expr $OPTIND - 1`
+
+run_sql

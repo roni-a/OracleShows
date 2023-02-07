@@ -1,0 +1,172 @@
+#!/bin/sh 
+
+######################################################################
+# Script:    explain
+# Author:    Nirit Le. Amdocs
+# Date:      12/01
+# Update:
+#
+#######################################################################
+# Script Purpose: explain a given sql 
+# Script Parameters: See usage section
+# SQL Scripts: 
+#######################################################################
+# Assumptions:
+#######################################################################
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: "
+ echo "`basename $0` "
+ echo "\n"
+ echo " -h   Help"
+ echo " -f   Explain sql in a given file"
+ printf "\n\n"
+}
+
+#########################################################################
+# Create PLAN_$$ table 
+#
+Cre_Tab()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+         set feed off
+         set ver off
+           CREATE TABLE PLAN_$$ (
+	        statement_id    varchar2(30),
+	        timestamp       date,
+	        remarks         varchar2(80),
+	        operation       varchar2(30),
+	        options         varchar2(30),
+	        object_node     varchar2(128),
+	        object_owner    varchar2(30),
+    	        object_name     varchar2(30),
+	        object_instance numeric,
+ 	        object_type     varchar2(30),
+ 	        optimizer       varchar2(255),
+	        search_columns  numeric,
+    	    	id              numeric,
+	        parent_id       numeric,
+     	   	position        numeric,
+		other           long);
+*eof*
+ Table=PLAN_$$
+}
+
+#########################################################################
+# Prepare statment 
+#
+Prep_Stmt()
+{
+ echo set feed off > $Sql_Stmt
+ echo set ver off >> $Sql_Stmt
+ echo "truncate table $Table;" >> $Sql_Stmt
+ echo "explain plan set statement_id='$$' into $Table for" >> $Sql_Stmt
+ return $OK
+}
+
+#########################################################################
+# Check file existance
+#
+Chk_File()
+{
+ if [ ! -s $1 ]
+   then echo "Error: File '$1' dose not exists !"
+        return $ERROR
+ fi
+ return $OK
+}
+
+#########################################################################
+# Get the sql statment
+#
+Get_Stmt()
+{
+  echo "enter the statement you want explained"
+  echo "don't forget to put ; at the end of the statement"
+  echo "finish with enter and ^d"
+  cat >> $Sql_Stmt
+}
+
+#########################################################################
+# Display plan
+#
+Disp_Plan() {
+echo XXXXXX
+$ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+set feed off
+set ver off
+set head off
+set pagesize 999
+SELECT lpad(' ',2*(LEVEL-1))||operation||' '||options||' '||object_name||' '||decode(id,0,'Cost='||position) "Query Plan"
+FROM PLAN_$$
+START WITH id=0 AND statement_id ='$$'
+CONNECT BY PRIOR id = parent_id AND statement_id = '$$'
+/
+*eof*
+ return $OK
+}
+
+#########################################################################
+# Drop PLAN_$$ table
+#
+Drp_Tab()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+         set feed off
+         set ver off
+           drop table PLAN_$$;
+*eof*
+}
+
+
+#########################################################################
+# MAIN
+#
+ 
+  Cre_Tab 
+
+  Sql_Stmt=$Log_Dir/expln_sql_$$.sql
+  Prep_Stmt
+
+  case $1 in
+    -h ) Usage
+         exit $OK
+         ;;
+    -f ) if [ "X$2" = "X" ]
+           then echo "Error: You must enter file name"
+                exit $ERROR
+         fi
+         Chk_File $2
+         if [ $? -ne $OK ]
+           then Drp_Tab
+                exit $ERROR
+           else cat $2 >> $Sql_Stmt 
+         fi
+         ;;
+     * ) if [ "X$1" != "X" ]
+           then echo "Error: Wrong flag"
+                Usage
+                exit $ERROR
+           else Get_Stmt
+         fi
+         ;;
+  esac
+
+  echo "exit;" >> $Sql_Stmt
+  $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @$Sql_Stmt
+  Disp_Plan
+
+  Drp_Tab 
+
+  exit $OK

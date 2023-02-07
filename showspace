@@ -1,0 +1,65 @@
+#!/bin/bash
+#
+# echo -en "\n\n\t sqlplus user/pass @ $ORACLE_MON/sqls/dbmsddl2.sql TYPE NAME USER\n\n"
+# exit
+
+Usage () {
+   echo -en "\n\tUsage: $0 -t <object type> -n <object name> -u <schema>\n\n"
+}
+
+# ================================================
+# M A I N
+# ================================================
+case "$1" in
+	   -h|-help|--help|\/?|? ) if [ "$2" = "" ]; then
+	                               Usage
+	                               exit 0
+	                            fi ;;
+esac
+
+export SEGNAME=""
+export OWNER=""
+export TYPE="TABLE"
+export PARTITION=""
+
+while getopts t:n:u:p: o
+do      case "$o" in
+	        t)  TYPE=`echo      "$OPTARG"| tr [a-z] [A-Z]` ;;
+	        n)  SEGNAME=`echo    $OPTARG | tr [a-z] [A-Z]` ;;
+	        u)  OWNER=`echo      $OPTARG | tr [a-z] [A-Z]` ;;
+	        p)  PARTITION=`echo  $OPTARG | tr [a-z] [A-Z]` ;;
+	        *)      cecho "      Wronge argument!!!" boldred
+	                usage
+	                exit 1 ;;
+	      esac
+done
+shift $(($OPTIND - 1))
+
+if [ "$SEGNAME" = "" ]; then
+	Usage
+	exit 1
+fi
+
+if   [ "$TYPE" = "TABLE" ];      then
+sqlplus -s / << EOF
+exec SHOW_SPACE ('$SEGNAME');
+EOF
+elif [ "$TYPE" = "PARTITION" ]; then
+   TYPE="TABLE PARTITION"
+sqlplus -s / << EOF
+exec SHOW_SPACE (P_SEGNAME => '$SEGNAME', P_OWNER => '$OWNER', P_TYPE => '$TYPE', P_PARTITION => '$PARTITION');
+EOF
+else
+sqlplus -s / << EOF
+exec SHOW_SPACE (P_SEGNAME => '$SEGNAME', P_OWNER => '$OWNER', P_TYPE => '$TYPE');
+EOF
+fi
+exit 0
+
+PROCEDURE SHOW_SPACE
+ Argument Name                  Type                    In/Out Default?
+  ------------------------------ ----------------------- ------ --------
+	 P_SEGNAME                      VARCHAR2                IN
+	  P_OWNER                        VARCHAR2                IN     DEFAULT
+		 P_TYPE                         VARCHAR2                IN     DEFAULT
+		  P_PARTITION                    VARCHAR2                IN     DEFAULT -- PARTITION name

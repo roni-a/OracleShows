@@ -1,0 +1,97 @@
+###### Unix aliases
+        alias cl=clear
+        alias grep='grep -i'
+        alias h=history
+        alias ll='ls -la'
+        alias lt='ls -u | head -20'  
+        alias lll='ll |tail'
+        alias lsd='ls -la | grep ^d'
+        alias lsl='ls -la | grep ^l'
+        alias ltr='ls -latr'
+        alias ltr10="ls -latr | tail -10"
+        alias ltr20='ls -latr | tail -20'
+        alias lrt='ls -lrtF'
+        alias lsize="ll | awk '{print \$5 , \$6 , \$7 ,  \$8 , \$9 }' | sort -n"
+	alias dirsize='du -sk *|sort -n'
+        alias m=more
+        alias rm='rm -i'
+        alias del='\rm'
+        alias pso='ps -eaf | grep $ORACLE_SID|grep -v grep | sort -k 5,5'
+        alias psora='ps -eaf | fgrep ora_|grep -v grep |sort'
+        alias psmon='ps -eaf | fgrep ora_|grep pmon|grep -v grep |sort'
+        alias psocpu='ps -eaf | grep oracle$ORACLE_SID|grep -v grep| sort -k 7'
+        alias pssql='ps -eaf | grep sql'
+	alias hist='history | grep $1'
+
+OS=`uname` 	; export OS
+
+###### Oracle Aliases
+	alias usql='sqlplus dw_schema/dw_schema'
+        alias nsql='sqlplus neodw/latte'
+        alias msql='sqlplus msrdw/minerva'
+        alias lsql='sqlplus looxdw/mistral'
+        alias showinv='run_check.sh -m $ORACLE_SID OracleCheck_Invalid'
+        alias showtsps='showdb -ts -ps'
+        alias showts='showdb -ts -p'
+        alias showtsobj='showobj -seg -ts'
+        alias showtslow='showdb -ts -low'
+        alias showfiles='showdb -dfile'
+        alias showtsf='showdb -dfile -ts $1'
+        alias showperf='showinst -perf'
+        alias showresp='showinst -resp'
+        alias showredo='showdb -redo'
+        alias showusers='showdb -usr'
+        alias showuser='showdb -usr -n'
+	alias showuq='showdb -usr -quot'
+        alias showswitch='showdb -redo -swch'
+        alias showevent='showsess -event'
+        alias shows='showsess -d'
+
+###### Oracle home aliases
+        alias duo="du -s $ORACLE_HOME"
+	alias utils='cd $ORACLE_BASE/scripts/utils; pwd;'
+        alias cdh='cd $ORACLE_HOME;ls'
+        alias cdhb='cd $ORACLE_HOME/bin;ll'
+        alias cdhl='cd $ORACLE_HOME/lib;ll'
+        alias cdhd='cd $ORACLE_HOME/dbs;ls init*'
+        alias cdhnet='cd $ORACLE_HOME/network/admin;ll'
+        alias cdhra='cd $ORACLE_HOME/rdbms/admin'
+        alias cdadm='cd $ORACLE_DIR/admin/${ORACLE_SID}'
+        alias netlog='vi + $ORACLE_HOME/network/log/`hostname`.log'
+        alias netlogf='tail -f $ORACLE_HOME/network/log/`hostname`.log'
+        alias sga='ll $ORACLE_HOME/dbs/sga*'
+        alias init='vi $ORACLE_HOME/dbs/init$ORACLE_SID.ora'
+        alias alert='vi + $ORACLE_DIR/admin/$ORACLE_SID/bdump/alert_$ORACLE_SID.log'
+        alias alertf='tail -f $ORACLE_DIR/admin/$ORACLE_SID/bdump/alert_$ORACLE_SID.log | sed s/^/"${ORACLE_SID}: "/'
+
+##### Listener aliases
+        alias lsnrstar='setenv LD_LIBRARY_PATH /usr/lib ; lsnrctl start'
+        alias lsnrstop='lsnrctl stop'
+        alias lsnrstat='lsnrctl status'
+
+##### Tnsnames aliases
+        alias vitns='vi $ORACLE_HOME/network/admin/tnsnames.ora'
+
+###### dba and adm aliases
+        alias cdmon='cd $ORACLE_MON'
+        alias cdb='cd $ORACLE_DIR/'
+        alias cdbs='cd $ORACLE_DIR/scripts'
+        alias cds='cd $ORACLE_DIR/scripts/${ORACLE_SID}'
+        alias cdpro='cd $ORACLE_DIR/scripts/${ORACLE_SID}/procedures'
+        alias cdaud='cd $ORACLE_DIR/admin/$ORACLE_SID/audit;ll'
+        alias cdbdu='cd $ORACLE_DIR/admin/$ORACLE_SID/bdump;ll'
+        alias cdcdu='cd $ORACLE_DIR/admin/$ORACLE_SID/cdump;ll'
+        alias cdudu='cd $ORACLE_DIR/admin/$ORACLE_SID/udump;ll'
+        alias cdenv='cd ~/ENV'
+        alias cdpfile='cd $ORACLE_DIR/admin/$ORACLE_SID/pfile;ll'
+        alias cdcre='cd $ORACLE_DIR/admin/$ORACLE_SID/create;ls'
+
+###### Info aliases
+        alias sid='echo ORACLE_SID = $ORACLE_SID'
+        alias whatpatch='cd $ORACLE_HOME/bin; what oracle'
+
+HOSTNAME=`hostname`			; export HOSTNAME
+
+# Private alias
+        alias ronidisp='export DISPLAY=192.168.5.104:0.0'
+

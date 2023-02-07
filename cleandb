@@ -1,0 +1,121 @@
+#!/bin/csh -f
+
+######################################################################
+# Script:       cleandb
+# Author:       
+# Date:         
+# Update by:    
+# Last Update:  10 May, 1999
+#
+#######################################################################
+# Script Porpose:
+#       Deallocate all unused space (leaving 40K) of tables and indexes
+#	which are bigger then 1M and do not use more then 90% of their
+#       allocation space.
+# Script Parameters:
+#       Optional - User
+# SQL Scripts: create_uspace
+#              ins_uspace
+#              ins_uspace_user
+#######################################################################
+
+### Environment #######################################################
+set LOGS=$HOME/dba/logs/dbmon
+set SQLS=$ORACLE_MON/sqls
+
+### Echo Description ##################################################
+if ( $#argv == 0 ) then
+   clear
+   echo "This script does the following:"
+   echo "Deallocate unused space (leaving 40K) of tables and indexes which are"
+   echo "bigger then 1M and do not use more then 90% of their allocation space."
+   echo "You can activate this script for one user or for the entire database:"
+   echo "For cleaning all users - type all "
+   echo "For cleaning one user - type its name " 
+   setenv User $<
+else
+   set User = $1
+endif
+
+if ( $User != 'all' ) then
+     setenv userpass $User
+     setenv User `echo  $userpass`
+     set ops_flag=`echo $userpass |cut -c1-3`
+     if ($ops_flag == "ops" || $ops_flag == "OPS" ) then
+        setenv Pass `echo $userpass |cut -c5-`
+     else
+        setenv Pass `echo $userpass`
+     endif
+endif
+
+### Show Space befor Cleanup #########################
+if ( $User == 'all' ) then
+   sqlplus -s / <<*EOF*
+set verify off
+SELECT round(sum(bytes)/1024/1024,2) "SPACE TAKEN BEFORE CLEAN (MB)"
+FROM dba_ts_quotas;
+*EOF*
+else
+   sqlplus -s $User/$Pass <<*EOF*
+set verify off
+SELECT round(sum(bytes)/1024/1024,2) "SPACE TAKEN BEFORE CLEAN (MB)"
+FROM user_ts_quotas;
+*EOF*
+endif
+
+### Create Table to Hold Information ##################################
+sqlplus -s / @$SQLS/create_uspace $$
+
+### Insert Space Information into Table ###############################
+if ( $User == 'all' ) then
+   sqlplus -s / @$SQLS/ins_uspace $$ > /dev/null
+else
+   sqlplus -s / @$SQLS/ins_uspace_user $$ $User > /dev/null
+endif
+
+### Create Spool with the Alter Statements ############################
+sqlplus -s / <<*EOF* >> $LOGS/cleandb.log
+set pages 0
+set head off
+set feed off
+set term off
+spool $LOGS/cleandb.sql
+select 'set feed off' from dual;
+SELECT 'alter '||object_type||' '||owner||'.'||OBJECT_NAME||' deallocate unused keep 40k;'  
+FROM uspace_$$;
+select 'exit;' from dual;
+spool off
+*EOF*
+
+### Execute Spool #####################################################
+sqlplus -s / @$LOGS/cleandb.sql
+
+### Show Space After Cleanup ##########################################
+if ( $User == 'all' ) then
+   sqlplus -s / <<*EOF*
+set verify off
+SELECT round(sum(bytes)/1024/1024,2) "SPACE TAKEN AFTER CLEAN (MB)"
+FROM dba_ts_quotas;
+*EOF*
+else
+   sqlplus -s $User/$Pass <<*EOF*
+set verify off
+SELECT round(sum(bytes)/1024/1024,2) "SPACE TAKEN AFTER CLEAN (MB)"
+FROM user_ts_quotas;
+*EOF*
+endif
+
+### Show How Many Objects were Altered ################################
+set objects=`wc -l $LOGS/cleandb.sql`
+@ objects[1] = $objects[1] - 2
+echo $objects[1] objects were altered
+
+### Clean uspace Table ################################################
+        sqlplus -s / <<*EOF*
+set echo off
+set termout off
+set feedback off
+set verify off
+drop table uspace_$$;
+*EOF*
+

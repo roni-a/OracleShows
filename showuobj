@@ -1,0 +1,98 @@
+#!/usr/bin/ksh
+
+#---------------------------------------------
+# Usage
+#---------------------------------------------
+Usage () {
+   echo "\n\t Usage: $0 [ -u <part_of_uname> ] [ -n <part_of_tab_name> ] [ -t <obj_type> ] [ -s ] \n"
+	 echo "\n -s = without Oracle system users (sys, system...)\n"
+   echo "\n Obj_types:"
+   echo "\t CLUSTER"
+   echo "\t CONSUMER GROUP"
+   echo "\t DATABASE LINK"
+   echo "\t FUNCTION"
+   echo "\t INDEX"
+   echo "\t INDEX PARTITION"
+   echo "\t LIBRARY"
+   echo "\t LOB"
+   echo "\t PACKAGE"
+   echo "\t PACKAGE BODY"
+   echo "\t PROCEDURE"
+   echo "\t QUEUE"
+   echo "\t RESOURCE PLAN"
+   echo "\t SEQUENCE"
+   echo "\t SYNONYM"
+   echo "\t TABLE"
+   echo "\t TABLE PARTITION"
+   echo "\t TRIGGER"
+   echo "\t TYPE"
+   echo "\t UNDEFINED"
+   echo "\t VIEW \n\n"
+}
+
+#---------------------------------------------
+# Show User Objects by type
+#---------------------------------------------
+Show_Uobj () {
+echo ""
+sqlplus -s $USHOW/${PSHOW} << *EOF* | sed '/^$/d'
+set echo off lines 150 pages 1600 verify off 
+
+Column object_name for a30
+
+break on owner on object_type on object_name on status skip 1
+
+define uname=$UNAME
+define tname=$TNAME
+define otype=$OTYPE
+
+SELECT  /*+ RULE */
+        owner,
+        object_type,
+        object_name,
+        status
+FROM  dba_objects
+WHERE owner LIKE UPPER('&uname%')
+  AND (UPPER(object_name) LIKE UPPER('%&tname%'))
+$SYS
+$OTYPE
+ORDER BY 1, 2, 3, 4
+/
+*EOF*
+echo ""
+}
+
+#---------------------------------------------
+# M A I N
+#---------------------------------------------
+case "$1" in
+            -h|-help|--help|\/?|? ) if [ "$2" = "" ]; then
+                                       Usage
+                                        exit 0
+                                    fi ;;
+esac
+
+export UNAME="%"
+export TNAME=""
+export OTYPE="AND object_type like '%%'"
+export SYS="--"
+
+while getopts t:n:u:s o
+do      case "$o" in
+                u)  UNAME=`echo $OPTARG | tr [a-z] [A-Z]`       ;;
+                n)  TNAME=`echo $OPTARG | tr [a-z] [A-Z]`       ;;
+                t)  OTYPE=`echo $OPTARG | tr [a-z] [A-Z]`
+                    OTYPE="AND object_type like '%${OTYPE}%'"   ;;
+								s)  SYS="AND owner NOT IN ('CTXSYS','EXFSYS','MDSYS','ORDSYS','OWNER','PUBLIC','SYS','OWNER','SYS','SYSMAN','SYSTEM','WMSYS','XDB','SQLTXPLAIN','DMSYS','DBSNMP','OLAPSYS')"    ;;
+                *)  Usage
+                    exit 1 ;;
+        esac
+done
+shift $(($OPTIND - 1))
+
+if [ "$TNAME" = "" ]; then
+   Usage
+    exit 1
+fi
+
+Show_Uobj

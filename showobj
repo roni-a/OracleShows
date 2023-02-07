@@ -1,0 +1,259 @@
+#!/bin/ksh 
+
+######################################################################
+# Script:    showobj
+# Author:    
+# Date:      07/00
+# Update:    
+#
+#######################################################################
+# Script Porpose: Show database object info 
+# Script Parameters:
+# SQL Scripts: gdbobjcache.sql, dbobjcache.sql, objbig.sql, 
+#              objbignx.sql, objbigx.sql, 
+#              objby.sql, objbydate.sql, objbyid.sql, objbystat.sql 
+#              objcntbyowner.sql, objcntbytype.sql, objext.sql, 
+#              objownercnt.sql, objpriv.sql, objseg.sql
+#              objseq.sql, objsize.sql, objspace.sql, objsrcsize.sql
+#              objstrg.sql, objtypecnt.sql, sessobj.sql,objreport.sql
+#######################################################################
+# Assuptions:
+#######################################################################
+
+# unalias rm
+# unalias grep
+unalias -a 
+SORT=/usr/bin/sort
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h | "
+ echo "        -big   [ [#] [-o owner] [-t type] ] | "
+ echo "        -bignx [ [#] [-o owner] [-t type] ] | "
+ echo "        -bigx  [ [#] [-o owner] [-t type] ] | "
+ echo "        -c [-o owner] [-t type]             | "
+ echo "        -d { date (DD-Mon-YY) }             | "
+ echo "        -ext [-n name] [-o owner]           | "
+ echo "        -gmem                               | "
+ echo "        -i { id }                           | "
+ echo "        -mem                                | "
+ echo "        -n name [-o owner] [-t type]        | "
+ echo "        -o owner [-n name] [-t type]        | "
+ echo "        -priv [-n name] [-o owner]          | "
+ echo "        -seg  [-n name] [-o owner] [-t type] [-ts tablespace] | "
+ echo "        -ses  [-o owner]                    | "
+ echo "        -seq  [-n name] [-o owner]          | "
+ echo "        -size [-n name] [-o owner] [-t type] [-ts tablespace] | " 
+ echo "        -sp -n name -o owner -t type        | "
+ echo "        -srcz [-o owner]                    | "
+ echo "        -stat [ valid | invalid ]           | "
+ echo "        -strg -o owner [-n name]            | "
+ echo "        -t [-n name] [-o owner]             | "
+ echo "        -tabz -n name -o owner              | " 
+ echo "       }\n"
+ echo " Owner and object name and object type can be given with % sign"
+ echo " -h     Help"
+ echo " -big   Objects which are larger then 1000M (or another given # of MB)"
+ echo " -bignx Objects which have next extent larger then 1000M (or another given # of MB)"
+ echo " -bigx  Objects which have more then 10 extents (or another given #)"
+ echo " -c     Objects count (statistical report / by owner / type) " 
+ echo " -d     Objects which where created after a given date"
+ echo " -ext   Objects' segments by a given name / owner " 
+ echo " -gmem  Global object cached in memory"
+ echo " -i     Objects by a given id"
+ echo " -mem   Object cached in memory"
+ echo " -n     Objects by a given name (and owner and / or type)"
+ echo " -o     Objects by a given owner (and name and / or type)"
+ echo " -priv  Tables' privileges (all / by a given owner and / or name)"
+ echo " -seg   Objects' segments by a given name / owner / type / tablespace "
+ echo " -ses   Objects that are being used by sessions (all / by a given owner)"
+ echo " -seq   Sequence info (all / by a given owner and / or name)"
+ echo " -size  Object size (all / by a given owner)"
+ echo " -sp    Object space analysis"
+ echo " -stat  Object by a given status"
+ echo " -srcz  Object source size (all / by a given owner) (dba_object_size)"
+ echo " -strg  Object storage by a given owner (and name)"
+ echo " -t     Objects by a given type (and name and / or owner)"
+ echo " -tabz  Tables' size (exac used blocks) by a given name and owner"
+ printf "\n\n"
+}
+
+###################################################################
+# Get arguments 
+# $1 - List of Arguments (-flag #/date/id -n name -o owner -t type )
+#
+Get_Args()
+{
+ Owner="%"
+ Name="%"
+ Type="%"
+ Ts="%"
+ while [ $# -gt 0 ]
+ do
+    flag=$1
+    shift 
+    case $flag in
+      -big|-bignx|-bigx ) if [ "X$1" != "X" ]
+                            then is_num=`echo $1 | awk '{print match($1,"-")}' `
+                                 if [ $is_num -eq 0 ]
+                                   then Num=$1
+                                        shift
+                                 fi 
+                          fi
+                          ;;
+      -c  ) case $# in 
+              0 ) Cnt=0
+                  ;;
+              1 ) Cnt=$1 
+                  Type=""
+                  shift
+                  ;;
+              * ) Cnt=$1 ;;
+            esac
+            ;;
+      -d  ) if [ "X$1" != "X" ]
+              then Date=$1
+              else echo "Error: You must enter a date"
+                   exit $ERROR
+            fi
+	    shift ;;
+      -i  ) if [ "X$1" != "X" ]
+              then Id=$1
+              else echo "Error: You must enter an object's id"
+                   exit $ERROR
+            fi
+            shift ;;
+      -n  ) if [ "X$1" != "X" ]
+              then Name=`echo $1 | tr "[:lower:]" "[:upper:]" `
+              else echo "Error: You must enter an object's name"
+                   exit $ERROR
+            fi
+            shift ;;
+      -o  ) if [ "X$1" != "X" ]
+              then Owner=`echo $1 | tr "[:lower:]" "[:upper:]" `
+              else echo "Error: You must enter an object's owner"
+                   exit $ERROR
+            fi
+            shift ;;
+      -stat) if [ "X$1" != "X" ]
+               then Status=`echo $1 | tr "[:lower:]" "[:upper:]" `
+               else Status="INVALID"
+             fi
+             ;; 
+      -t  ) if [ "X$1" != "X" ]
+              then Type=`echo $1 | tr "[:lower:]" "[:upper:]" `
+              else echo "Error: You must enter an object's type"
+                   exit $ERROR
+            fi
+            shift ;;
+      -ts ) if [ "X$1" != "X" ]
+              then Ts=`echo $1 | tr "[:lower:]" "[:upper:]" `
+              else echo "Error: You must enter a tablespace's owner"
+                   exit $ERROR
+            fi
+            shift ;;
+       *  ) ;;
+     esac
+ done
+ lngth=`$ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof*
+set feed off
+set pagesize 0
+select max(length(username)+1) from dba_users where username like '$Owner';
+*eof*
+`
+ return $OK
+}
+
+
+#########################################################################
+# MAIN
+#
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi 
+  Get_Args $*
+  case $1 in
+    -h    ) Usage ;;
+    -big  ) if [ "X$Num" = "X" ]
+              then Num=1000
+            fi
+            sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objbig $Num $Owner $Type $lngth ;;
+    -bignx) if [ "X$Num" = "X" ]
+              then Num=1000
+            fi
+            sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objbignx $Num $Owner $Type $lngth ;;
+    -bigx ) if [ "X$Num" = "X" ]
+              then Num=10
+            fi
+            sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objbigx $Num $Owner $Type $lngth ;; 
+    -c    ) if [ "X$Cnt" = "X0" ]
+	      then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objreport
+	    else if  [ "X$Cnt" = "X-o" ] 
+              then if [ "X$Owner" != "X" ]
+                     then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objcntbyowner $Owner $lngth 
+                     else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objownercnt
+                   fi
+              else if [ "X$Type" != "X" ]
+                     then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objcntbytype $Type
+                     else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objtypecnt
+                   fi
+	    fi
+	    fi
+            ;;
+    -d    ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objbydate $Date $lngth ;; 
+    -ext  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objext $Name $Owner $lngth ;;
+    -gmem ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/gdbobjcache ;;
+    -i    ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objbyid $Id $lngth ;;
+    -mem  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dbobjcache ;;
+    -[not]) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objby $Name $Owner $Type $lngth ;;
+    -priv ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objpriv $Name $Owner $lngth ;;
+    -seg  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objseg $Name $Owner $Type $lngth $Ts ;;
+    -ses  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessobj $Owner $lngth ;;
+    -seq  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objseq $Name $Owner $lngth ;;
+    -size ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objseg $Name $Owner $Type $lngth $Ts ;;
+    -sp   ) if [ $# -lt 7 ]
+              then echo "Error: -sp -n name -o owner -t type "
+                   exit $ERROR 
+            fi 
+            Type=`echo $Type | sed s/\'//g | sed s/=//g`
+            if [ "$Type" != "TABLE" -a "$Type" != "INDEX" -a "$Type" != "CLUSTER" ]
+              then echo "Error: type sould be TABLE, INDEX, or CLUSTER"
+                   exit $ERROR
+            fi
+            if [ `echo $Owner $Name | grep % | wc -l` -gt 0 ]
+              then echo "Error: owner and name should be given without %"
+                   exit $ERROR
+            fi
+            sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objspace $Name $Owner $Type ;;
+    -srcz ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objsrcsize $Owner $lngth ;;
+    -stat ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objbystat $Status $lngth ;;
+    -strg ) if [ $# -lt 3 ]
+              then echo "Error: -strg -o owner [ -n name ] "
+                   exit $ERROR
+            fi
+            sqlplus -s $USHOW/$PSHOW @$Sql_Dir/objstrg $Name $Owner $lngth ;;
+    -tabz ) if [ $# -lt 5 ]
+              then echo "Error: -tabz -n name -o owner "
+                   exit $ERROR
+            fi
+            Owner=`echo $Owner | sed s/\'//g | sed s/=//g`
+            sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tabsize $Name $Owner ;;
+    *     ) echo "Error: Wrong flag"
+            Usage
+            exit $ERROR 
+            ;;
+  esac
+  exit $OK 
+   

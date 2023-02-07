@@ -1,0 +1,427 @@
+#!/bin/sh 
+
+######################################################################
+# Script:    showdb
+# Author:    Nirit Leibovitch, Amdocs
+# Date:      07/00
+# Update:    
+#
+#######################################################################
+# Script Porpose: Show database info 
+# Script Parameters:
+# SQL Scripts: ctl.sql, ctlrec.sql, dblink.sql, dfiles.sql, dfstat.sql, 
+#              dfusage.sql, files.sql, freeext.sql, init.sql, nls.sql,
+#              objseg.sql, option.sql, param.sql, priv.sql, privsys.sql, 
+#              redo.sql, role.sql, rolegrnt.sql, rolenogrnt.sql, 
+#              roleprivs.sql, snap.sql, tsps.sql, tsps.sql,
+#              tspsfile.sql, tsquota.sql, user.sql, userlastddl.sql,
+#              users.sql, userbydate.sql, usersquota.sql, userssize.sql
+#######################################################################
+# Assuptions:
+#######################################################################
+
+# unalias rm
+# unalias grep
+SORT=/usr/bin/sort
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h    | "
+ echo "        -ctl  | "
+ echo "        -ctlrc | "
+ echo "        -dbln [ owner ] | "
+ echo "        -dfile [ -u | -r | -s ] | "
+ echo "        -file | "
+ echo "        -free [ ts name ] | "
+ echo "        -init | "
+ echo "        -nls  | "
+ echo "        -nrole role | "
+ echo "        -option [ option ] | "
+ echo "        -param [ paramater ] | "
+ echo "        -priv [ -u username | -r role | sys ] | "
+ echo "        -redo [ -swch ] | "
+ echo "        -role | "
+ echo "        -rolp { role } | "
+ echo "        -rolg { role } | "
+ echo "        -seg [ -f file ] [ -o owner ] | " 
+ echo "        -snap [ master_owner ] | "
+ echo "        -tmp | "
+ echo "        -ts [ -f ] [ -grph ] [ -quot [tablespace] ] [ -seg tablespace ] [ -max ] | "
+ echo "        -usr [ -cre date (DD-Mon-YY) | "
+ echo "               -ddl date (DD-Mon-YY) | -n username | -size ] | "
+ echo "       }\n"
+ echo "-h 	Help"
+ echo "-ctl  	Control file status"
+ echo "-ctlrc 	Control file record"
+ echo "-dbln 	DB links of user / all" 
+ echo "-dfile	Datafiles names and sizes"
+ echo "-u    	Datafile Usage: Used space, Free space and Total space"
+ echo "-r    	Datafile Resize: Current size, HWM size and saving amount"
+ echo "-s    	Datafile Status: Status (ON/OFF), Physical read and write"  
+ echo "-file 	Files list: datafiles, control and redo files"
+ echo "-free 	Free extents by tablespace"
+ echo "-init 	InitSID.ora parameters"
+ echo "-nls  	NLS info"
+ echo "-nrole	Which users are no granted that role"
+ echo "-option	Database options/s"
+ echo "-param	Database paramater/s" 
+ echo "-priv 	Privilege of user / role / all or system"
+ echo "-redo 	Redo logs status"
+ echo "-swch 	Redo logs switch over time"
+ echo "-role 	Roles list"
+ echo "-rolp 	Role's privileges"
+ echo "-rolg 	Which users are granted a given role"
+ echo "-seg  	For each db file, write the segemnts' owners and size"
+ echo "-f    	file           writes file segemnts' owners and size"
+ echo "-o    	owner          writes owner's segment on db file(s)"
+ echo "-snap 	Snapshots of user / all"
+ echo "-tmp  	temporary tablespace segments"
+ echo "-ts   	Tablespaces status"
+ echo "    -f    	      Tablespace's files"
+ echo "    -grph 	      Tablespace's space report whith graph"
+ echo "    -max         Tablespace's Maximum growth"
+ echo "    -quot 	      Tablespace's users' quotas"
+ echo "    -seg  	      Tablespace's segments"
+ echo "    -ps  	      Tablespace's sizes orber by [#]"
+ echo "-usr  	users info  (order by user name / tablespace / size / date"
+ echo "    -cre  	date      Users which were created after a given date" 
+ echo "    -ddl  	date      Users which their last DDl is before a given date"
+ echo "    -n    	username  username info"
+ echo "    -quot	Users quotas on tablespaces"
+ echo "    -size	Usernames sizes"
+ printf "\n\n"
+}
+
+###################################################################
+# Get order 
+# $* - All Arguments 
+#
+Get_Ord()
+{
+  Num=`echo $* | wc -w`
+  while [ $Num -gt 3 ]
+  do
+    if [ "$1" = "-ord" ]
+      then shift
+           case $1 in
+             n   ) Ord=1 ;;
+             tbs ) Ord=2 ;;
+             sz  ) Ord=3 ;;
+             dt  ) Ord=4 ;;
+          esac
+      else shift
+    fi
+  done 
+}
+
+#########################################################################
+# Get Oracle list of datafiles 
+# $1 - file name, if given
+#
+Get_File_Lst()
+{
+ File_Lst=`$ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof*
+set heading off
+set feedback off
+SELECT name FROM v\\$datafile WHERE name like '%$1%' ORDER BY ts#, file#;
+*eof*
+`
+ if [ "X$File_Lst" = "X" ]
+   then return $ERROR
+   else return $OK
+ fi
+}
+
+########################################################################
+# Write user name and used size in each db file 
+# $1 - File name, if given
+# $2 - Owner name, if given
+#
+Get_File_Owner()
+{
+ echo "SEGMENTS OF DB FILE: $File" 
+ if [ "X$Owner" = "X" ]
+   then Owner='%'
+ fi
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof*
+set pagesize 1000
+set line 132
+set echo off
+set feedback off
+set verify off
+col owner for a30
+col segment_name for a30
+col bytes for 9,999,999,999 head "Bytes"
+SELECT dex.owner, sum(dex.bytes) bytes
+FROM dba_extents dex, v\$datafile df
+WHERE df.name = '$File'
+  AND dex.owner like upper('$Owner')
+  AND dex.file_id = df.file#
+GROUP BY dex.owner
+ORDER BY bytes;
+*eof*
+ printf "\n\n"
+}
+
+
+#########################################################################
+# MAIN
+#
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi 
+  
+#  Ver=`$ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @$Sql_Dir/version`
+#  Ver=`grep $ORACLE_SID /etc/oratab | awk -F: '{print $2}' | awk -F\/ '{print $NF}' | awk -F\. '{print $1 $2}' | tr 'a-z' ' '`
+#  if [ $Ver -ge 90 -o $Ver -eq 90 -o $Ver -eq 10 ]
+#    then V=9
+#    else if [ $Ver -eq 81 ]
+#           then V=81
+#         fi
+#  fi
+V=9
+
+  if [ `echo $* | grep " \-ord "` ]
+    then Get_Ord $*
+  fi
+
+  case $1 in
+    -h    ) Usage ;;
+    -ctl  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ctl ;;
+    -ctlrc ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ctlrec ;;
+    -dbln ) if [ "X$2" = "X" ]
+              then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dblink %
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dblink $2
+            fi
+            ;;
+    -dfile ) if [ "X$2" != "X" ] 
+               then case $2 in
+                     -s ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dfstat$V ;;
+                     -u ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dfusage ;;
+                     -r ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dfresize ;;
+		     -ts) if [ "X$3" != "X" ] ; then
+			     sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dfiles$V $3 
+			  else 
+			     sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dfiles$V % 
+			  fi ;;
+                      * ) echo "Error: Wrong flag"
+                          Usage
+                          exit $ERROR
+                          ;;
+                    esac
+               else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dfiles$V %
+            fi
+            ;;
+    -file ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/files$V ;;
+    -free ) if [ "X$2" = "X" ]
+              then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/freeext % $Log_Dir/freeext$$.log
+                   more $Log_Dir/freeext$$.log 
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/freeext $2 $Log_Dir/freeext$$.log
+                   more $Log_Dir/freeext$$.log
+            fi
+            ;;
+    -init ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/init ;;
+    -nls  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/nls ;;
+    -nrole) if [ "X$2" = "X" ]
+              then echo "Error: you must give a role name" 
+                   exit $ERROR
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rolenogrnt $2
+            fi
+            ;; 
+    -option) if [ "X$2" != "X" ]
+               then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/option $2 
+               else  sqlplus -s $USHOW/$PSHOW @$Sql_Dir/option % 
+             fi
+             ;;
+    -param ) if [ "X$2" != "X" ]
+               then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/param $2 
+               else  sqlplus -s $USHOW/$PSHOW @$Sql_Dir/param % 
+             fi
+             ;;
+    -priv ) if [ "X$2" != "X" ]
+              then case $2 in
+                     -[ur] ) if [ "X$3" = "X" ]
+                               then echo "Error: you must give a user / role name"
+                                    exit $ERROR
+                             fi
+                             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/priv $3 ;;
+                     sys   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/privsys ;;
+                      *    ) echo "Error: Wrong flag"
+                             Usage
+                             exit $ERROR
+                             ;;
+                    esac
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/priv %
+            fi
+            ;;
+    -redo ) if [ "X$2" != "X" ] 
+	      then case $2 in
+		     -swch ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/redo_switch.sql ;;
+		   esac
+		else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/redo 
+	    fi
+	    ;;
+    -role ) if [ "X$2" = "X" ]
+              then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/role
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rolegrnt $2
+            fi
+            ;;
+    -rolg ) if [ "X$2" = "X" ]
+              then echo "Error: you must give a role name"
+                   exit $ERROR
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rolegrnt $2
+            fi 
+            ;;
+    -rolp ) if [ "X$2" = "X" ]
+              then echo "Error: you must give a role name"
+                   exit $ERROR
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/roleprivs $2
+            fi
+            ;;
+    -seg  ) File_Lst=""
+            shift 
+            if [ $# -eq 0 ]
+              then Get_File_Lst
+                  if [ $? -ne $OK ] 
+                    then echo "Error: can't get db files' list"
+                         exit $ERROR
+                  fi
+            fi
+            while [ $# -gt 0 ]
+            do
+              case $1 in
+                -[fF] ) if [ "X$2" = "X" ]
+                          then echo "Error: you must give a file name" 
+                               exit $ERROR
+                        fi
+                        File=$2
+                        Get_File_Lst $File 
+                        if [ $? -ne $OK ] 
+                          then echo "Error: can't get db files' list"
+                               exit $ERROR
+                        fi ;;
+                -[oO] ) if [ "X$2" = "X" ]
+                          then echo "Error: you must give an owner name"
+                               exit $ERROR
+                        fi
+                        Owner=$2 
+                        if [ "X$File_Lst" = "X" ]
+                          then Get_File_Lst  
+                        fi ;;
+                  *   ) echo "Error: Wrong flag"
+		        Usage
+		 	exit $ERROR ;;
+              esac
+              shift
+       	      shift
+            done
+# get data
+            for File in $File_Lst
+            do
+              Get_File_Owner $File $Owner
+            done
+            ;;
+    -snap ) if [ "X$2" = "X" ]
+              then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/snap %
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/snap $2
+            fi
+            ;;
+    -tmp  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tempseg ;;
+    -ts   ) if [ "X$2" != "X" ]
+              then case $2 in
+                     -ddl  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsddl $3 ;;
+                     -f    ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tspsfile $3 ;;
+		     						 -grph ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tspsgraph ;;
+		     						 -low  ) if [ "X$3" != "X" ]
+				    									 then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tslow$V $3 
+															 else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tslow$V 10
+			     									 fi ;;
+                     -max  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tspsmax ;;
+	             			 -quot ) if [ "X$3" != "X" ] 
+                               then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsquota $3 $Log_Dir/tsquota$$.log
+                               else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsquota % $Log_Dir/tsquota$$.log
+                             fi
+                             more $Log_Dir/tsquota$$.log ;;
+                     -seg  ) if [ "X$3" != "X" ]
+                               then Ts=$3
+                               else Ts="%"
+                             fi 
+                             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsseg $Ts $Log_Dir/tsseg$$.log 
+                             more $Log_Dir/tsseg$$.log ;;
+		     						 -ps   ) if [ "X$3" = "Xasc" -o "X$3" = "Xdesc" -o "X$3" = "XASC" -o "X$3" = "XDESC" ]
+			     										 then if [ "X$4" != "X" ]
+				   														then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ts$V $4 $3
+				   														else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ts$V 1 $3
+																		fi
+			     									 elif [ "X$3" != "X" ]
+																then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ts$V $3 asc	
+			     											else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ts$V 1 asc	
+			     									 fi ;;
+		     						 -p    ) if [ "X$3" != "X" ] 
+										 					 then if [ "X$4" != "X" ] 
+															 			  then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsps$V $3 $4
+																		  else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsps$V $3 asc
+																		fi
+                             else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsps$V 1 asc
+                             fi ;;
+                     -rep  ) sqlplus -s $USHOW/$PSHOW @ $Sql_Dir/tsrep ;;
+                      *    ) echo "Error: Wrong flag"
+                             Usage
+                             exit $ERROR
+                             ;;
+                   esac
+           else 
+		 				 sqlplus -s $USHOW/$PSHOW @$Sql_Dir/tsps$V 
+           fi ;;
+    -usr ) if [ "X$2" != "X" ]
+             then case $2 in
+                    -cre ) if [ "X$3" = "X" ]
+                           then echo "Error: You must enter a date in format DD-Mon-YY"
+                                exit $ERROR
+                           fi
+                           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/userbydate $3 $Log_Dir/userbydate$$.log
+			   more $Log_Dir/userbydate$$.log ;;
+                    -ddl ) if [ "X$3" = "X" ]
+                           then echo "Error: You must enter a date in format DD-Mon-YY"
+                                exit $ERROR
+                           fi
+                           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/userlastddl $3 $Log_Dir/userlastddl$$.log
+                           more $Log_Dir/userlastddl$$.log ;;
+                    -n ) if [ "X$3" = "X" ]
+                           then echo "Error: You must enter a user name" 
+                                exit $ERROR
+                         fi
+			 sqlplus -s $USHOW/$PSHOW @$Sql_Dir/user $3 $Log_Dir/$3$$.log 
+			 more $Log_Dir/$3$$.log ;;
+                    -quot ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/usersquota $Log_Dir/usersquota$$.log
+                            more $Log_Dir/usersquota$$.log ;;
+		    -size ) sqlplus  -s $USHOW/$PSHOW @$Sql_Dir/userssize $$ $Log_Dir
+                             ;;
+                     * ) echo "Error: Wrong flag"
+                         Usage
+                         exit $ERROR
+                         ;;
+                  esac
+             else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/users $Log_Dir/users$$.log
+                  more $Log_Dir/users$$.log
+             fi
+             ;;
+    *    ) echo "Error: Wrong flag"
+           Usage
+           exit $ERROR 
+           ;;
+  esac
+  exit $OK 
+   

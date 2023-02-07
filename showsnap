@@ -1,0 +1,56 @@
+#!/bin/bash
+
+if [ "X${1}" = "X" ] ; then
+   rsh -l root 10.0.2.10 snap list dwhp_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.10 snap list ndwp_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.10 snap list msrdwp_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.10 snap list looxdwp_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.10 snap list bi_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.11 snap list neop_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.11 snap list msrp_data
+   echo -en "\n\n======================================================================\n\n"
+   rsh -l root 10.0.2.11 snap list imlp_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "incredimail" -o "$1" = "imlp" ] ; then
+   rsh -l root 10.0.2.11 snap list imlp_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "dwhp" ] ; then
+   rsh -l root 10.0.2.10 snap list dwhp_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "ndwp" ] ; then
+   rsh -l root 10.0.2.10 snap list ndwp_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "msrdwp" ] ; then
+   rsh -l root 10.0.2.10 snap list msrdwp_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "looxdwp" ] ; then
+   rsh -l root 10.0.2.10 snap list looxdwp_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "bidwp" ] ; then
+   rsh -l root 10.0.2.10 snap list bi_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "neop" ] ; then
+   rsh -l root 10.0.2.11 snap list neop_data
+   echo -en "\n\n======================================================================\n\n"
+
+elif [ "$1" = "msrp" ] ; then
+   rsh -l root 10.0.2.11 snap list msrp_data
+   echo -en "\n\n======================================================================\n\n"
+fi
+
+printf '\n\n%s\n\n' "To delete snapshot:"
+printf '\t%s\n\n'     "rsh -l root <netapp_server_name/IP> snap delete <volume_name> <snapshot_name>"
+printf '\t%s\t%s\n\t\t\t\t%s\n\n' "netapp_server_name:" "1. 10.0.2.10 - DW" "2. 10.0.2.11 - Prod"

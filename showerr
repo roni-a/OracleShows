@@ -1,0 +1,94 @@
+#!/usr/bin/ksh
+
+# -------------------------------------------
+# Usage
+# -------------------------------------------
+Usage () {
+   echo -en "\n\t$0 -u <user> [ -d <days back> ] [ -o <origin> ] [ -t <type> ]\n\n"
+}
+
+# -------------------------------------------
+# SetEnv
+# -------------------------------------------
+SetEnv () {
+   export ORCLE_HOME=`grep -i $ORACLE_SID /etc/oratab | awk -F: '{print $2}'`
+   export    SQLPLUS=${ORACLE_HOME}/bin/sqlplus
+}
+
+# -------------------------------------------
+# ShowErr
+# -------------------------------------------
+ShowErr () {
+
+# echo $DAYS_BACK , $USER , $ORIGIN
+
+$SQLPLUS -s /  << *EOF*
+set pages 600 feedback off
+col ERROR_TEXT for a100
+col EXTRA_INFO for a100
+alter session set nls_date_format='DD-MON-YYYY HH24:MI:SS';
+set lines 150
+
+SELECT  origin,
+        timestamp,
+        user_id,
+        error_text,
+        extra_info||chr(10)||'======================================================' extra_info
+FROM    ${USER}.im_errors 
+WHERE   timestamp > SYSDATE  - $DAYS_BACK 
+$REMARK AND origin LIKE '%${ORIGIN}%'
+ORDER   BY timestamp
+/
+
+*EOF*
+}
+
+# ===================================================
+# M A I N
+# ===================================================
+if [ $# -eq 0 -o "$1" = "-h" -o "$1" = "-H" ]; then
+   Usage
+   exit 1
+fi
+
+USER="%"
+DAYS_BACK=1
+TYPE="full"
+ORIGIN="%"
+while getopts u:d:o:t: opt
+do
+    case "$opt" in
+       u  )  USER="$OPTARG"
+             REM1='--'
+             REM2=''
+             ;;
+       d  )  DAYS_BACK="$OPTARG"
+             REM1=''
+             REM2='--'
+             ;;
+       o  )  ORIGIN="$OPTARG"
+             REM1=''
+             REM2='--'
+             ;;
+       t  )  TYPE="$OPTARG"
+             REM1=''
+             REM2='--'
+             ;;
+       * )  # unknown flag
+             Usage
+             exit 1             ;;
+    esac
+done
+shift `expr $OPTIND - 1`
+
+SetEnv $ORACLE_SID
+
+case "$TYPE" in
+   "full" ) ShowErr
+	    ;;
+       *  ) echo -en "\n\tERROR: Unknown <type> - exiting\n\n"
+	    Usage
+	    exit 1
+            ;;
+esac
+

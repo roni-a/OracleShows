@@ -1,0 +1,219 @@
+#!/bin/sh
+
+######################################################################
+# Script:    showsga
+# Author:    Nirit Le. Amdocs
+# Date:      07/00
+# Update:    
+#
+#######################################################################
+# Script Porpose: Monitor SGA
+# Script Parameters: See usgae section
+# SQL Scripts: dbbufcache.sql, dbbufcache2.sql, dbobjcache.sql, 
+#              ddcache.sql, enque_waits.sql, freelst.sql, gdbobjcache.sql, gddcache.sql, glibcache.sql
+#              gsqlarea.sql, latch.sql, libcache.sql, queue.sql,
+#              rdbufcache.sql, sesssysevent.sql, sga.sql, sgaobj.sql,
+#              sgastat.sql, spoolsize.sql,sqlarea.sql, upga.sql,
+#              sysstat.sql, waitstat.sql
+#######################################################################
+# Assuptions:
+#######################################################################
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo " Usage: { `basename $0` "
+ echo "         -h | "
+ echo "         -all    | "
+ echo "         -dbbuf  | "
+ echo "         -enque  | "
+ echo "	        -event  | "
+ echo "         -freels | "
+ echo "         -queue  | "
+ echo "         -latch  | "
+ echo "         -rdbuf  | "
+ echo "         -sga    | "
+ echo "         -sgas   |"
+ echo "         -spool [-lib | -gsql | -sql | -gobj | -obj | -dd | -uga | -size] "
+ echo "         -stat   | "
+ echo "         -wait     "  
+ echo "        }\n"
+ echo " -h      Help"
+ echo " -all    Genral report on sga, with recommendations"
+ echo " -dbbuf  Statistics for database buffer cache (v\$sysstat)"
+ echo " -event  Statistics for system events (v\$system_event)" 
+ echo " -freels Statistics for free lists (v\$sysstat, v\$waitstat)"
+ echo " -latch  Statistics for latcsh contention (v\$latch v\$latchname)"
+ echo " -obj	Objects in data cache"
+ echo " -queue  Statistics for queues wait (v\$queue)"
+ echo " -rdbuf  Statistics for redo log buffer cache (v\$sysstat)"
+ echo " -sga    Showsga "
+ echo " -sgas   Sga status (v\$sgastat)" 
+ echo " -spool  Genral report on shared pool, with recommendations"
+ echo "     -lib  Statistics for library cache (v\$librarycache) "
+ echo "     -gsql Global statistics for shared cursors (v\$sqlarea) " 
+ echo "     -sql  Statistics for shared cursors (v\$sqlarea) "
+ echo "     -gobj Global database objects cached (v\$db_object_cache) "
+ echo "     -obj  Database objects cached (v\$db_object_cache) "
+ echo "     -dd   Statistics for data dictionary cache (v\$rowcache) " 
+ echo "     -uga  Status of user global area (v\$sesstat) "
+ echo "     -size Astimated size for shared pool"
+ echo "     -sys  shared memory from system command ipcm"
+ echo " -stat	System status (v\$sysstat)"
+ echo " -wait   Wait statistics (v\$waitstat)"
+ printf "\n\n"
+}
+
+#########################################################################
+# Monitor the SGA 
+#
+Show_Mon()
+{
+ Shared_Pool_Mon
+ echo ""
+ echo " Database Buffer Cache"
+ echo " ====================="
+ echo " Hit Ratio should be higher than .90 else increase db_block_buffers." 
+ echo " If Hit Ratio is higher then .95, db_block_buffers may be too large."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dbbufcache 
+ echo " Waits statistics"
+ echo " ----------------"
+ echo " free buffer inspected - # of buffers skipped, in order to find free"
+ echo "                         buffer, because they are dirty or pinned."
+ echo " buffer busy waits - waits for buffer to become available."
+ echo " Free buffer waits - waits after a server can't find a free buffer"
+ echo "                     or when the dirty queue is full."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dbbufcache2
+ echo ""
+ echo " Redo Log Buffer Cache"
+ echo " ====================="
+ echo " There should be no 'log buffer space' waits."
+ echo " The 'redo buffer allocation retries' should be near 0. It should" 
+ echo "   be less than 1% of 'redo entries'."
+ echo " Else consider increasing log_buffer, moving the redo logs to faster"
+ echo "   disks or improving the checkpointing or archiving process."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rdbufcache
+ echo ""
+ echo " Latchs statistics"
+ echo " ================="
+ echo " Ratio should be less than 1%, else there might be latch contention,"
+ echo " consider decreasing log_small_entry_max_size in init.ora"
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/latch
+ echo ""
+ echo " Queue Waits"
+ echo " ============="
+ echo " Average wait should be near 0."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/queue
+ echo ""
+ echo " Session Event"
+ echo " ============="
+ echo " If average wait > 0 then contention exists."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesssysevent
+}
+
+#########################################################################
+# Monitor the shared pool
+#
+Shared_Pool_Mon()
+{
+ echo " Library Cache"
+ echo " ============="
+ echo " Library Cache Miss Ratio should be less than .01 (More than 1% of the "
+ echo "   pins resulted in reloads), else increase the shared_pool_size."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/glibcache
+ echo " Namespace hit ration sould be in the high 90s."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/libcache
+ echo " Sql area main executions"
+ echo " ------------------------"
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/gsqlarea
+ echo ""
+ echo " Data Dictionary"
+ echo " ==============="
+ echo " Hit Ratio Should be higher than .90 else increase shared_pool_size."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/gddcache
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ddcache 
+ echo ""
+ echo " Shared Pool Size" 
+ echo " ================"
+ echo " Estimated size for shared_pool_size.\n"
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/spoolsize
+}
+
+#########################################################################
+# Show Oracle shared memory from system command ipcm 
+#
+Ora_Ipcm()
+{
+ echo "owner | number of | shared mem | last    | last "
+ echo "      | processes | size       | connect | disconnect"
+ echo "====================================================="
+ ipcs -ma | fgrep oracle |awk '{print $5,"   "$9,"      "$10,"   "$13,"  "$14}'
+ max_shared=`grep shmmax /etc/system | tr 'X' 'x' | awk '{print $2}'`
+ echo " " 
+ stcode $max_shared | awk '{print "max allowed shared mem seg: "$1}'
+ echo " "
+}
+
+#########################################################################
+# MAIN
+#
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi
+  case $1 in
+    -h     ) Usage ;;
+    -all   ) Show_Mon ;;
+    -dbbuf ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dbbufcache ;;
+    -event ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesssysevent ;;
+    -enque ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/enque_waits ;;
+    -freels) echo
+             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/waitstat | egrep "CL|-|free"
+             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/freelst ;;
+    -latch ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/latch ;;
+    -obj   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sgaobj ;;
+    -queue ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/queue ;;
+    -rdbuf ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rdbufcache ;;
+    -sga   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sga ;; 
+    -sgas  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sgastat ;;
+    -spool ) shift 
+             if [ "X$1" != "X" ]
+               then case $1 in
+                      -lib  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/glibcache
+                              sqlplus -s $USHOW/$PSHOW @$Sql_Dir/libcache ;;
+                      -gsql ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/gsqlarea ;;
+                      -sql  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sqlarea ;;
+                      -gobj ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/gdbobjcache ;;
+                      -obj  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/dbobjcache ;;
+                      -dd   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/gddcache
+                              sqlplus -s $USHOW/$PSHOW @$Sql_Dir/ddcache ;;
+                      -uga  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/upga ;;
+	              -size ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/spoolsize ;;
+                      -sys  ) Ora_Ipcm  ;;
+	               *    ) echo "Error: Wrong flag"
+                              echo "Usage: -spool [-lib | -gsql | -sql | -gobj | -obj | -dd | -uga | -size]"
+                              exit $ERROR
+                              ;;
+                    esac 
+               else Shared_Pool_Mon
+             fi
+	     ;;
+    -stat  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sysstat ;;
+    -wait  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/waitstat ;;
+     *     ) echo "Error: Wrong flag"
+             Usage
+             exit $ERROR
+             ;;
+  esac
+  exit $OK
+

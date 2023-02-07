@@ -1,0 +1,2 @@
+iostat -cxzn 1
+

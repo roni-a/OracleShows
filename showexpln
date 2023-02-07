@@ -1,0 +1,57 @@
+#!/usr/bin/ksh
+#
+
+export ORCLE_HOME=`grep -i $ORACLE_SID /etc/oratab | awk -F: '{print $2}'`
+export SQLPLUS=${ORACLE_HOME}/bin/sqlplus 
+
+OUSER=
+OPASS=
+FILE=
+while getopts f:p:u: opt
+do
+    case "$opt" in
+       f  )  FILE="$OPTARG"
+             ;;
+       p  )  OPASS="$OPTARG"
+             ;;
+       u  )  OUSER="$OPTARG"
+             ;;
+       \? )  # unknown flag
+             Usage
+             exit 1
+             ;;
+    esac
+done
+shift `expr $OPTIND - 1`
+
+ID=`date +%d%m%y%H%M%S`.$$
+
+if [ "$FILE" != "" ] ; then
+   echo "explain plan SET STATEMENT_ID = '${ID}' for" > /tmp/expln.${ID}
+   cat $FILE >> /tmp/expln.${ID}
+   sed '/^[ \t]*$/d' /tmp/expln.${ID} > /tmp/expln.${ID}.2
+   \rm -f  /tmp/expln.${ID}
+else
+   echo "explain plan SET STATEMENT_ID = '${ID}' for" > /tmp/expln.${ID}
+   $ORACLE_MON/showsess -r $1 >> /tmp/expln.${ID}
+   echo "/"  >> /tmp/expln.${ID}
+   sed '/^[ \t]*$/d' /tmp/expln.${ID} > /tmp/expln.${ID}.2
+   \rm -f  /tmp/expln.${ID}
+fi
+
+LINES=`wc -l /tmp/expln.${ID}.2 | awk '{print $1}'`
+let LINES=LINES-1
+echo " " 
+cat /tmp/expln.${ID}.2 | tail -${LINES}
+
+echo ======== /tmp/expln.${ID}.2 ============== ${OUSER} ${OPASS}
+$SQLPLUS -s ${OUSER}/${OPASS} << *EOF*
+set pages 9999 line 400 echo off verify off feedback off
+
+@/tmp/expln.${ID}.2
+
+@${ORACLE_MON}/sqls/expln_by_id $ID
+prompt
+*EOF*
+
+\rm -f /tmp/expln.${ID}.2

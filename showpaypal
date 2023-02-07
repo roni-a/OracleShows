@@ -1,0 +1,269 @@
+#!/usr/bin/ksh
+
+USAGE () {
+  echo "\n\nUSAGE: showpaypal <bill_prov_id> <month> <month> [and = refund | --] [rem | compute = multi curr] [prod group]"
+  echo "\n\t\t 24=Paypal, 1=Digi, 3=Biz, 17=Biz Malta, 23=Acti\n\n"
+  echo "\t\t      1 Regular"
+  echo "\t\t      2 1 Year Subscription"
+  echo "\t\t      3 2 Year Subscription"
+  echo "\t\t      4 Life Time Subscription"
+  echo "\t\t      5 All IncrediMail products"
+  echo "\t\t      6 IncrediMail Premium"
+  echo "\t\t      7 IncrediMail LetterCreator"
+  echo "\t\t      8 IncrediMail Bundle"
+  echo "\t\t      9 JunkFilter Plus"
+  echo "\t\t     10 Gold Gallery"
+  echo "\t\t     11 HalloWeen Pack"
+  echo "\t\t     12 Emoticons Super Pack\n\n"
+  exit
+}
+
+if [ "$1" = "-h" ] ; then
+   USAGE
+fi
+
+if [ $# -ne 6 ] ; then
+   USAGE
+fi
+
+# "and" mean REFUND
+if [ "$4" = "and" ] ; then
+   REM="--"
+   HEAD1="REFUND"
+else 
+   REM="AND"
+   HEAD1="Order"
+fi
+
+sqlplus -s /  << *EOF*
+set pages 0 echo off veri off feed off 
+
+column billname new_value xbillname noprint
+SELECT bill_provider_name billname FROM dw_schema.im_billing_providers WHERE BILL_PROVIDER_ID = $1;
+
+
+set lines 100 pages 100 echo off veri off
+define bill_prov=$1
+define start_mon=$2
+define end_mon=$3
+define isrem=$5
+-- REFUND_DATE
+
+col des 	for a50
+col card	for a8
+col ord 	for 999,999.99 head "Order|Amount"
+col usd 	for 999,999.99 head "USD|Amount"
+col order_status_id for a13 head "Status"
+
+break on des skip 1 on des on report
+compute sum of usd on report
+$5  sum of usd on des -- compute
+
+tti '$HEAD1 Report of &xbillname - By Product - CONFIRMED ONLY| By Card | From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       ep.description      des,
+       o.order_currency    cur,
+       o.order_pay_method  card,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND    order_status_id     = 2
+$REM   order_time          BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date         IS NOT NULL
+$4     o.refund_date       BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+GROUP  BY ep.description, o.order_currency, o.order_pay_method
+/
+exit;
+tti '$HEAD1 Report of &xbillname - By Product - CONFIRMED ONLY| From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       ep.description      des,
+       o.order_currency    cur,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND    order_status_id     = 2
+$REM   order_time      	   BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date         IS NOT NULL
+$4     o.refund_date 	   BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+GROUP  BY ep.description, o.order_currency
+/
+
+tti '$HEAD1 Report of &xbillname - By Product - NOT Confirmed Only | From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       ep.description      des,
+       o.order_currency    cur,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND    order_status_id     = 0
+$REM   order_time      	   BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date       IS NOT NULL
+$4     o.refund_date 	   BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+GROUP  BY ep.description, o.order_currency
+/
+
+tti '$HEAD1 Report of &xbillname - By Product - Israely Percheses | From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       ep.description      des,
+       o.order_currency    cur,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND    order_status_id     = 2
+$REM   order_time          BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date         IS NOT NULL
+$4     o.refund_date       BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    c.CUST_COUNTRY	   LIKE 'Israel%'
+GROUP  BY ep.description, o.order_currency
+/
+
+CLEAR BREAKS
+CLEAR COMPUTES
+break on cur skip 1 on cur on report
+$5  sum of usd on report
+compute sum of ord on cur
+compute sum of usd on cur
+
+tti '$HEAD1 Report of &xbillname - By Currency - CONFIRMED ONLY | From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       o.order_currency    cur,
+       ep.description      des,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND     order_status_id     = 2
+-- AND    order_time          BETWEEN ('01-&&start_mon-2006') AND ('01-&&end_mon-2006')
+$REM   order_time          BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date         IS NOT NULL
+$4     o.refund_date 	   BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+GROUP  BY o.order_currency, ep.description
+/
+
+tti '$HEAD1 Report of &xbillname - By Currency - NOT Confirmed Only | From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       o.order_currency    cur,
+       ep.description      des,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND    order_status_id     = 0
+$REM   order_time          BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date         IS NOT NULL
+$4     o.refund_date 	   BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+GROUP  BY o.order_currency, ep.description
+/
+
+tti '$HEAD1 Report of &xbillname - By Currency - Israely ONLY | From: $2 Till: $3'
+
+SELECT /*+ index(o im_orders_ordtime_ix) */
+       o.order_currency    cur,
+       ep.description      des,
+       SUM(d.line_amount) ord,
+       SUM(d.line_usd_amount)   usd
+FROM   dw_schema.im_orders o,
+       dw_schema.im_customers c,
+       dw_schema.im_order_details d,
+       dw_schema.IM_EXT_PRODUCTS ep,
+       dw_schema.IM_PRODUCTS p,
+       dw_schema.IM_PROD_TO_GRP g
+WHERE  o.db_order_id       = d.db_order_id
+AND    o.cust_id           = c.cust_id
+AND     order_status_id     = 2
+-- AND    order_time          BETWEEN ('01-&&start_mon-2006') AND ('01-&&end_mon-2006')
+$REM   order_time          BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    ep.product_ext_id   = d.product_ext_id
+AND    p.product_id        = g.product_id
+AND    ep.bill_provider_id = o.bill_provider_id
+AND    ep.product_id       = p.product_id
+AND    o.bill_provider_id  = &&bill_prov
+AND    g.group_id          = $6
+$4     o.refund_date         IS NOT NULL
+$4     o.refund_date       BETWEEN UPPER('&&start_mon') AND UPPER('&&end_mon')
+AND    c.CUST_COUNTRY	   LIKE 'Israel%'
+GROUP  BY o.order_currency, ep.description
+/
+*EOF*

@@ -1,0 +1,47 @@
+#!/usr/bin/sh
+
+#----------------------------------------------------------------
+# Start
+#----------------------------------------------------------------
+start_trace () {
+
+sqlplus -s /nolog  << EOF
+conn sys/${PASS}
+set serverout on
+exec sys.dbms_system.set_int_param_in_session($SID, $Serial, 'max_dump_file_size', 52428800 )
+exec dbms_system.set_bool_param_in_session ( $SID, $Serial, 'timed_statistics', TRUE )
+exec sys.dbms_system.set_ev($SID, $Serial, 10046, ${LEVEL}, '')
+EOF
+}
+
+#----------------------------------------------------------------
+# Stop
+#----------------------------------------------------------------
+stop_trace () {
+
+sqlplus -s /nolog << EOF
+conn sys/${PASS}
+set serverout on
+exec sys.dbms_system.set_ev($SID, $Serial , 10046, 0, '')
+exec dbms_system.set_sql_trace_in_session($SID, $Serial, FALSE)
+exec sys.dbms_system.set_int_param_in_session($SID, $Serial, 'max_dump_file_size', 2097152)
+EOF
+}
+
+#----------------------------------------------------------------
+# M A I N
+#----------------------------------------------------------------
+
+SID=$2
+Serial=$3
+PASS=$4
+LEVEL=$5
+
+if [ "X$1" = "Xstart" ] ; then
+   start_trace
+elif [ "X$1" = "Xstop" ] ; then
+   stop_trace
+else
+   echo "Error ! ! ! first arg shold be: start or stop"
+   echo "\n\tUsage: event10046 [ start | stop ] <SID> <Serial> <sys pass> <LEVEL(if start!) [ 8 | 12 ]>\n"
+fi

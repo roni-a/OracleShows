@@ -1,0 +1,18 @@
+#!/usr/bin/ksh
+
+if [ "$ORACLE_SID" = "dwhp" ] ; then
+   OUSER=DW_SCHEMA
+else
+   OUSER=IM_SCHEMA
+fi
+
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set lines 100 echo off verify off feedback off
+col job_name for a20
+col initializer for a10
+
+SELECT job_number, job_name, initializer, stats, last_update_date
+FROM ${OUSER}.im_job_ctrl;
+prompt
+
+*EOF*

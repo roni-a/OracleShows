@@ -1,0 +1,146 @@
+#!/bin/sh
+
+######################################################################
+# Script:   compare_sids
+# Author:   
+# Date:     01/02
+# Update:
+#
+#######################################################################
+# Script Porpose: compare between the users objects in two different instances 
+
+unalias rm
+unalias grep
+SORT=/usr/bin/sort
+OK=0
+ERROR=1
+
+#########################################################################
+# Print script usage
+#
+
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h    | "
+ echo " Please insert instance1 and then instance2 to compare:"  
+}
+
+
+#########################################################################
+# Print the subtraction od the users objects in two different instances  
+#
+
+Object_list()
+{
+
+$ORACLE_HOME/bin/sqlplus -s /@$Sid1 <<*eof*
+set pagesize 1000
+set line 132
+set echo off
+col owner for a10
+col TABS for 999
+col IND for 999
+col PACK for 999
+col VIEWS for 999
+col SYN for 999
+col SEQ for 999
+
+select a.owner,
+  a.tables-b.tables "TABS",
+  a.indexes-b.indexes "IND",
+  a.package-b.package "PACK",
+  a.views-b.views "VIEWS",
+  a.synonyms-b.synonyms "SYN",
+  a.sequences-b.sequences "SEQ"
+  from
+(select owner,
+count(decode(object_type,'TABLE',1)) tables,
+count(decode(object_type,'INDEX',1)) indexes,
+count(decode(object_type,'PACKAGE',1)) package,
+count(decode(object_type,'VIEW',1)) views,
+count(decode(object_type,'SYNONYM',1)) synonyms,
+count(decode(object_type,'SEQUENCE',1)) sequences
+from dba_objects
+group by owner) a
+,
+(select owner,
+count(decode(object_type,'TABLE',1)) tables,
+count(decode(object_type,'INDEX',1)) indexes,
+count(decode(object_type,'PACKAGE',1)) package,
+count(decode(object_type,'VIEW',1)) views,
+count(decode(object_type,'SYNONYM',1)) synonyms,
+count(decode(object_type,'SEQUENCE',1)) sequences
+from dba_objects@xxx
+group by owner ) b
+where  a.owner=b.owner
+and b.owner not in ('SYS','SYSTEM','OUTLN','OPS\$ORACLE','SCOTT','DBSNMP','PRECI
+SE');
+
+*eof*
+}
+
+############################################################################
+# create user master with dba privilages
+
+Create_user()
+{
+$ORACLE_HOME/bin/sqlplus -s /@$Sid2 <<*eof*
+create user master identified by master 
+default tablespace system
+temporary tablespace temp;
+grant dba to master;
+*eof*
+}
+
+############################################################################
+# Drop user master
+
+Drop_user()
+{
+$ORACLE_HOME/bin/sqlplus -s /@$Sid2 <<*eof*
+drop user master cascade;
+*eof*
+}
+
+############################################################################
+#Create dblink 
+
+Create_dblink()
+{
+$ORACLE_HOME/bin/sqlplus -s /@$Sid1 <<*eof*
+create database link dblink connect to master identified by master using '$Sid2'; 
+
+*eof*
+}
+
+############################################################################
+# Drop dblink
+
+Drop_dblink()
+{
+$ORACLE_HOME/bin/sqlplus -s /@$Sid1 <<*eof*
+drop database link dblink;
+*eof*
+
+}
+
+
+##################
+#Main
+
+ if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi
+
+Sid1=$1
+Sid2=$2
+Create_user
+Create_dblink
+Object_list
+Drop_user
+Drop_dblink
+
+

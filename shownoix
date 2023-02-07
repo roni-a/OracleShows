@@ -1,0 +1,101 @@
+#!/bin/sh
+
+######################################################################
+# Script:    shownoix
+# Author:    Nirit Leibovitch, Amdocs
+# Date:      Sep, 1999
+# Update:
+#
+#######################################################################
+# Script Porpose:
+#       Report foreign keys without indexes on child table for all 
+#       the database
+# Script Parameters:
+# SQL Scripts:
+#######################################################################
+
+######################################################################
+# Set Environment Vars
+#
+Set_Env () {
+unalias rm
+SORT=/usr/bin/sort
+
+OK=0
+ERROR=1
+
+LOGS=$ORACLE_MON/logs
+SQLS=$ORACLE_MON/sqls
+}
+
+######################################################################
+# Gets the arguments from the user.
+#
+Get_Args() {
+ Owner=`echo $1 | tr "[:lower:]" "[:upper:]"`
+ return $OK
+}
+
+######################################################################
+# Data of FK With no Indexes on Them
+#
+Sel_No_Ix() {
+
+sqlplus -s $USHOW/$PSHOW << *EOF*
+prompt
+prompt Foreign Keys without Indexes on Child Table:  (${Owner})
+prompt 
+-- spool $LOGS/shownoix_$$.log
+set verify off feedback off linesize 120 pagesize 70 echo off
+col owner for a15
+col table_name for a25
+col constraint_name for a35
+col column_name for a22
+col position for 999 head Pos
+
+break on owner on report
+
+SELECT 	distinct acc.owner, 
+	acc.table_name, 
+	acc.constraint_name, 
+	acc.column_name
+FROM  	all_cons_columns acc, 
+	all_constraints ac
+WHERE  	ac.constraint_name = acc.constraint_name
+  AND  	ac.constraint_type = 'R'
+  AND  	(acc.owner, acc.table_name, acc.column_name) IN
+        	(SELECT acc.owner, acc.table_name, acc.column_name
+          	 FROM   all_cons_columns acc, all_constraints ac
+          	 WHERE  ac.constraint_name = acc.constraint_name
+            	 AND    ac.constraint_type = 'R'  
+         	 MINUS
+         	 SELECT table_owner, table_name, column_name
+          	 FROM   all_ind_columns)
+  AND  	acc.owner like '${Owner}%'
+ORDER 	BY acc.owner, acc.table_name, acc.constraint_name,acc.column_name
+/
+prompt
+*EOF*
+}
+
+######################################################################
+#
+# MAIN
+#
+Set_Env
+
+if [ $# -gt 0 ] 
+   then Get_Args $*
+      if [ $? -eq $ERROR ]
+        then echo $Msg
+             exit
+      fi
+else Owner="%"
+fi
+
+Sel_No_Ix
+
+exit $OK
+
+
+

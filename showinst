@@ -1,0 +1,365 @@
+#!/bin/ksh 
+
+######################################################################
+# Script:    showinst
+# Author:    
+# Date:      06/01
+# Update:    
+#
+#######################################################################
+# Script Purpose: Show Instance/s infor 
+# Script Parameters: See usage section
+# SQL Scripts: dbbufcache.sql, dbwrchkp.sql, enqrsc.sql, glibcache.sql, 
+#              gddcache.sql, instenv.sql, logbuf.sql, sortarea.sql
+#######################################################################
+# Assumptions:
+#######################################################################
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h                                | "
+ echo "        -bkup [ -h hostname ]              | "
+ echo "        -env  [ -h hostname ]             | " 
+ echo "        -l                                | "
+ echo "        -perf [ -s sid ]                  | "
+ echo "        -resp                  		| "
+ echo "        -stat [ -s sid ]                  | "
+ echo "        -pop                              | "
+ echo "        -ver [ -s sid ]                   | "
+ echo "        -odm                              | "
+ echo "        -sh [ -h host ] script            |"
+ echo "        -ssh [ -s sid ] script            | "
+ echo "        -sql [ -s sid ] script            | "
+ echo "        -commit                              | "
+ echo "       }\n"
+ echo " -h     Help"
+ echo " -env   Host/s enviroment"
+ echo " -l     List of Local instances"
+ echo " -perf  Instance performance"
+ echo " -resp  Instance response time breakdown"
+ echo " -bkup  Check for TS in backup mode on all machines/Local machine"
+ echo " -stat  Instance/s status"
+ echo " -pop   Quick status of all instances "
+ echo " -ver   Product version"
+ echo " -odm   status of odm processes"
+ echo " -sh    Run shell script for every host"
+ echo " -sql   Run sql script " 
+ echo " -ssh   Run shell script for every sid"
+ echo " -commit   Commit rate per second"
+ printf "\n\n"
+}
+
+###################################################################
+# Get arguments
+# $1 - List of Arguments 
+#
+Get_Args()
+{
+ Line_List=`cat /etc/oratab | grep -v ^#`
+ Host_List="10.0.0.18 10.0.0.17"
+ Sid_List=`cat /etc/oratab | grep -v ^# | awk -F: '{print $1}'`
+
+ Args=""
+ while [ $# -gt 0 ]
+ do
+    flag=$1
+    shift
+    case $flag in
+      -s ) if [ "X$1" != "X" ]
+              then Line_List=`grep -i '^'$1: /etc/oratab`
+                   Sid=`echo $Line_List | cut -d: -f1`
+                   Sid_List=$Sid
+              else echo "Error: You must enter an Sid's name"
+                   exit $ERROR
+            fi
+            shift ;;
+      -h ) if [ "X$1" != "X" ]
+              then Host=`echo $1`
+                   Host_List=$Host
+                   Sid_List=`grep -i :$Host: /etc/oratab | cut -d: -f1` 
+              else echo "Error: You must enter an Sid's name"
+                   exit $ERROR
+            fi
+            shift ;;
+       * ) Args=`echo $Args $flag` ;;
+     esac
+ done
+ return $OK
+}
+
+
+#########################################################################
+# Check connection to Host
+# $1 - Host
+Chk_Host_Conn()
+{
+ Host=$1
+ echo `/etc/ping $Host -n 1` | grep -i "0 packets received" > /dev/null 2>&1
+ if [ $? -eq 1 ]
+   then return $OK
+   else return $ERROR
+ fi
+}
+
+#########################################################################
+# Check connection to Sid
+# $1 - Sid
+Chk_Sid_Conn()
+{
+ Sid=$1
+ Reachable=`$ORACLE_MON/chk_conn $Sid`
+ if [ "X$Reachable" = "XORA-0" ]
+   then Ora_Home=`grep $Sid /etc/oratab | cut -d: -f3`
+        Ver=`echo $Ora_Home | awk -F/ '{print $NF}' | awk -F. '{print $1 $2 $3}' | sed s/OPS//`
+        if [ $Ver -eq 816 ]
+          then USHOW=scott; export USHOW
+               PSHOW=muki; export PSHOW
+          else unset USHOW
+               unset PSHOW
+        fi
+        return $OK
+ fi
+ return $ERROR
+}
+
+#########################################################################
+# Show Host/s Environment
+# $1 - Host
+Show_Env()
+{
+ if [ `grep $Host /etc/oratab | wc -l` -le 0 ]
+   then return $OK
+ fi
+ Os=`remsh $Host "uname -sr" 2>/dev/null | tail -1 | cut -d' ' -f1`
+ case `echo $Os` in 
+     'HP-UX') printf "%-9s %-16s" $Host $Os ;;
+     'SunOS') printf "%-9s %-16s" $Host $Os ;;
+     'OSF1' ) printf "%-9s %s %-11s" $Host $Os ;;
+     'AIX'  ) printf "%-9s %-16s" $Host $Os ;;
+      *     ) printf "%-9s ? %14s" $Host ;;
+ esac
+ flag=$OK
+ for Sid in `grep $Host /etc/oratab | cut -d: -f1`
+ do
+    if [ $flag -ne $OK ]
+       then printf "%-9s - %14s" "-" 
+    fi
+    Y_N=`remsh $Host "grep $Sid: /etc/oratab | cut -d: -f3" 2>/dev/null | tail -1`
+    Y_N=${Y_N:-\\?}
+    Chk_Sid_Conn $Sid 
+    if [ $? -eq $OK ]
+      then Inst_Env=`sqlplus -s $USHOW/$PSHOW@$Sid @$Sql_Dir/instenv`
+           Exp=`echo $Inst_Env | grep DBA_EXP`
+           Exp=${Exp:+"Y"}
+           Exp=${Exp:-"N"}
+           Cold=`echo $Inst_Env | grep DBA_PROD`
+           Cold=${Cold:+"Y"}
+           Cold=${Cold:-"N"}
+           Hot=`echo $Inst_Env | grep HOT_BACKUP_SCHEDULE`
+           Hot=${Hot:+"Y"}
+           Hot=${Hot:-"N"}
+           echo $Inst_Env | grep NOARCHIVELOG > /dev/null
+           if [ $? -eq $ERROR ]
+             then Arch="Y"
+             else Arch="N"
+           fi
+           Ver=`echo $Inst_Env | awk -F'ARCHIVELOG ' '{print $2}' | cut -d' ' -f1`
+       else Exp="UnReachable"
+            Cold=" "
+            Hot=" "
+            Arch=" "
+            Ver=`grep $Sid: /etc/oratab | cut -d: -f3 | awk -F/ '{print $NF}' | sed s/DG//`
+    fi
+    printf "%-12s %-12s ${Y_N:-?} %9s %5s %5s %6s\n" $Sid $Ver $Exp $Cold $Hot $Arch
+    flag=$ERROR
+ done
+}
+
+#########################################################################
+# Run sql
+#
+Run_Sql()
+{
+ Output=`sqlplus -s $USHOW/$PSHOW@$Sid @$Args`
+ if [ -n "$Output" ]
+   then printf "%-9s $Output" $Sid
+ fi
+} 
+
+#########################################################################
+# Show Instance/s Preformance
+# $1 - Sid
+Inst_Pref()
+{
+ if [ "X$1" != "X" ]
+   then Sid=@$1
+ fi
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/logbuf
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/glibcache
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/gddcache
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/dbbufcache
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/sortarea
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/enqrsc
+ sqlplus -s $USHOW/$PSHOW$Sid @$Sql_Dir/dbwrchkp
+}
+
+#########################################################################
+# Show Instance/s Status
+# $1 - Line
+Show_Stat()
+{
+ Chk_Sid_Conn $Sid 
+ if [ $? -eq $OK ]
+   then if [ $Ver -lt 800 ]
+          then printf "%-9s %-7s %-9s %-4s %-4s %-5s %-7s %-6s %-5s %-9s %-4s\n" $Sid $Host $Ver `sqlplus -s $USHOW/$PSHOW@$Sid  @$Sql_Dir/instat7 @$Sql_Dir/user_count`
+          else printf "%-9s %-7s %-9s %-4s %-4s %-5s %-7s %-6s %-5s %-9s %-5s\n" $Sid $Host $Ver `sqlplus -s $USHOW/$PSHOW@$Sid  @$Sql_Dir/instat8 @$Sql_Dir/user_count`
+        fi
+   else printf "%-9s %-7s UnReachable\n" $Sid $Host
+ fi
+}
+
+####################################################################
+# Show Pop = show all instances status quickly 
+#
+Show_Pop()
+{
+ Chk_Sid_Conn $Sid
+ if [ $? -eq $ERROR ]
+   then case `echo $Reachable` in 
+          ORA-12*   ) echo $Sid'\t'$Host'\t'$Reachable ;;
+          ORA-00*   ) echo $Sid'\t'$Host'\t'$Reachable ;;
+          ORA-2*    ) echo $Sid'\t'$Host'\t'$Reachable ;;
+          ORA-3*    ) echo $Sid'\t'$Host'\t'$Reachable ;;
+          ORA-0103* ) echo $Sid'\t'$Host'\t'$Reachable ;;
+          ORA-0109* ) echo $Sid'\t'$Host'\t'$Reachable ;;
+        esac
+ fi
+}
+
+#########################################################################
+# Print report headings 
+# $1 - Flag
+Heading()
+{
+ case $Flag in
+   -env )    clear
+             echo "-------------------------------------------------------------------------------------"
+             echo "Host      OS              SID          Verison     Y/N       Exp   Cold  Hot   Arch"
+             echo "-------------------------------------------------------------------------------------"
+             ;;
+   -bkup )   echo "\n\n\n"
+             echo "Number of active files in backup mode"
+             echo "--------------------------------------------\n"
+             echo "Sid     Host     Active Files"
+             echo "--------------------------------------------"
+             ;;
+   -pop )    clear
+             echo "The folowing are the problematic instances :"
+             echo "--------------------------------------------"
+             ;;
+   -stat )   clear 
+             echo "-------------------------------------------------------------------------------------"
+             echo "                            Process                                                 "
+             echo "SID       Host    Ver       Now  Max  SGA   Data    Tran   Miss  Startup  Users"
+             echo "-------------------------------------------------------------------------------------"
+             ;;
+ esac
+}
+
+#########################################################################
+# MAIN
+#
+
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi
+
+  Flag=$1
+  shift
+  Heading $Flag
+  Get_Args $*
+
+  case $Flag in
+# For current or other single Sid / Host
+    -h|-bkup|-l|-perf|-resp|-ver|-commit) 
+          case $Flag in
+            -h    ) Usage ;;
+            -bkup ) if [ -z "$Host" ]
+                      then $ORACLE_MON/showinst -sql $Sql_Dir/inbkup.sql 
+                      else for Sid in $Sid_List
+                           do
+                             $ORACLE_MON/showinst -sql $Sql_Dir/inbkup.sql -s $Sid
+                           done
+                    fi ;;
+            -l    ) grep :Y /etc/oratab ;;
+            -perf ) Inst_Pref $Sid ;;
+#	    -resp ) $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @$Sql_Dir/check_response.sql;;
+	    -resp ) $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @$Sql_Dir/10resp.sql;;
+            -ver  ) Sid=${Sid:-$ORACLE_SID} 
+                    $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW@$Sid @$Sql_Dir/vertool.sql ;;
+	    -commit ) $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @$Sql_Dir/commit_rate.sql;;
+          esac;;
+
+# Functions per Sid/Line in /etc/oratab file or for a given Sid
+    -pop|-ssh|-sql|-stat ) 
+        for Line in $Line_List 
+        do
+          Sid=`echo $Line | cut -d: -f1`
+          Host=`echo $Line | cut -d: -f2`
+          Chk_Host_Conn $Host
+          if [ $? -ne $OK ]
+            then echo "$Sid\t $Host\t Connection_to_Host_fail"
+                 continue
+          fi
+          Chk_Sid_Conn $Sid
+          if [ $? -ne $OK -a "$Flag" != "-pop" ]
+            then echo "$Sid\t UnReachable"
+                 continue
+          fi
+          case $Flag in
+            -pop    ) Show_Pop ;;
+            -ssh    ) remsh $Host "$Args $Sid" > /dev/null 2>&1 ;;
+            -sql    ) Output=`sqlplus -s $USHOW/$PSHOW@$Sid @$Args`
+                      if [ -n "$Output" ]
+                        then printf "%-9s " $Sid
+                             echo $Output
+                      fi ;;
+            -stat   ) DAY=`date +%d.%m.%Y.%I:%M`
+                      Show_Stat | tee -a $Log_Dir/showinst_stat.$DAY.log ;;
+           esac
+        done ;;
+ 
+# Functions per Host in upd_hosts file or for a given Host
+    -env|-odm|-sh )
+        for Host in $Host_List
+        do
+          Chk_Host_Conn $Host
+          if [ $? -ne $OK ]
+            then echo "$Host\t Connection to Host fail" 
+                 continue
+          fi
+          case $Flag in
+            -env  ) Show_Env ;;
+            -odm  ) Checkup=`remsh $Host ""ps -ef | grep odm_a| grep -v grep| wc -l""`
+                    if [ $Checkup -ne 2 ]
+                      then echo "$Host - The ODM processes didn't start"
+                    fi ;;
+            -sh ) remsh $Host " "'printf "`hostname` \t"'" ; $Args " ;;
+          esac
+        done  ;;
+   esac
+  exit $OK
+
+

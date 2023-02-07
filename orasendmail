@@ -1,0 +1,119 @@
+#!/bin/bash
+
+#----------------------------------------------------
+# 
+#----------------------------------------------------
+Usage () {
+   printf '\n\t Usage: orasendmail <subject> <message> <mail_list> [<log_file_location>]\n\n'
+   printf '\t\t log_file_location - [ F | N ]\n\n'
+   printf '\t\t mail_list - [ 1 | 2 | 3 | 4 ]\n'
+   printf '\t\t\t\t 1 - DBA''s mail only\n'
+   printf '\t\t\t\t 2 - roni,eran\n'
+   printf '\t\t\t\t 3 - DBA''s mail and SMS\n'
+   printf '\t\t\t\t 4 - siteteam\n'
+   printf '\t\t\t\t 5 - roni mail only\n'
+   printf '\t\t\t\t 6 - siteteam,avi\n'
+   printf '\t\t\t\t 7 - roni,alex\n'
+   printf '\t\t\t\t 8 - roni mail and SMS\n'
+}
+
+#----------------------------------------------------
+# 
+#----------------------------------------------------
+SetEnv () {
+   export COMP=`hostname`
+   export ORACLE_HOME="/u01/app/oracle/product/10.2/db_1"
+   export LD_LIBRARY_PATH=${ORACLE_HOME}/lib:/usr/openwin/lib:/usr/local/lib
+   if [ "`uname`" = "SunOS" ]; then
+      export MAIL=/usr/bin/mailx
+   else
+      export MAIL=/usr/lib/sendmail
+   fi
+   export TMPFILE=/tmp/orasendmail-`date +%d%m%y%H%M%S`$$
+   export senderlogin=`hostname`"-Alerts"
+   export senderdomain=oovoo.com
+   export senderaddress="db-"$senderlogin"@"$senderdomain
+   export sendername=$senderlogin
+}
+
+#----------------------------------------------------
+#
+#----------------------------------------------------
+MailList () {
+   if   [[ $1 -eq 1 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 2 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 3 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 4 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 5 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 6 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 7 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 8 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   elif [[ $1 -eq 9 ]] ; then
+      export List=$2
+   elif [[ $1 -eq 10 ]] ; then
+      export List='roni.alboim@oovoo.com'
+   fi
+}
+
+#----------------------------------------------------
+# PrepTmpFile
+#----------------------------------------------------
+PrepTmpFile () {
+echo "From: \""$sendername"\" <"$senderaddress">" >> $TMPFILE
+echo "To: "$List >> $TMPFILE
+echo "Date: "$now >> $TMPFILE
+echo "Subject: "$1 >> $TMPFILE
+# If U want to recive egnolage when the user recive the mail
+# echo "Return-Receipt-To: \""$sendername"\" <"$senderaddress">" >> $TMPFILE
+echo "" >> $TMPFILE
+if [ "$3" = "F" ] ; then
+   echo "$2"     >> $TMPFILE
+   `eval cat $2` >> $TMPFILE
+else
+   echo "$2" >> $TMPFILE
+fi
+echo "" >> $TMPFILE
+# cat $TMPFILE
+}
+
+#----------------------------------------------------
+# Send any error message using postie
+#----------------------------------------------------
+SendMail () {
+   if [ "`uname`" = "SunOS" ]; then
+echo ============================= $1 $List $TMPFILE
+      $MAIL -s "$1" $List > /dev/null < $TMPFILE
+#  /usr/bin/mailx -s "DBWATCH ooVoo ALERTLOG ERROR : `uname -n` : :RAC"  "roni.alboim@oovoo.com" > /dev/null < $TMPFILE
+   else
+      $MAIL -t -f $senderaddress < $TMPFILE
+   fi
+}
+
+#----------------------------------------------------
+# M A I N
+#----------------------------------------------------
+if [ "$1" = "-h" ] ; then
+   Usage
+else
+ 
+if [ "X${4}" = "X" ] ; then
+   FILE=N
+else
+   FILE=$4
+fi
+   SetEnv
+   MailList $3 $4
+   PrepTmpFile "$1" "$2" "$FILE"
+   SendMail "$1"
+#   \rm $TMPFILE
+fi
+
+

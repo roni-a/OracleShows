@@ -1,0 +1,93 @@
+#!/bin/csh -f
+
+######################################################################
+# Script:       showunused
+# Author:       
+# Date:         1998
+# Update by:	
+# Last Update:  10 May, 1999
+#
+#######################################################################
+# Script Porpose:
+# 	Report all tables and indexes which are bigger then 1M and do 
+#	not use more then 90% of their allocation space.
+# Script Parameters:
+#	Optional - User
+# SQL Scripts: create_uspace
+#	       ins_uspace
+#	       ins_uspace_user
+#######################################################################
+
+### Massages ##########################################################
+echo " This bigee requires patience .."
+
+### Environment #######################################################
+set LOGS=$ORACLE_MON/logs
+set SQLS=$ORACLE_MON/sqls
+
+### Echo Description ##################################################
+if ( $#argv == 0 ) then
+   clear
+   echo "             SHOWUNUSED                "
+   echo "Report all tables and indexes which are bigger then 1M "
+   echo "and do not use more then 90% of their allocation space."
+   echo  "To activate: "
+   echo "For all users - type all "
+   echo "For one user - type the user's name "
+   setenv User $<
+else
+   set User = $1
+endif
+
+# case this script is activated by the reorgix script	
+if ( $#argv == 2 ) then
+   set NotDropUspace = 1
+   set PID = $2
+else
+   set NotDropUspace = 0
+   set PID = $$
+endif
+touch $LOGS/showunused_$PID.log
+
+### Create Table to Hold Information ##################################
+sqlplus -s / @$SQLS/create_uspace $PID
+
+### Insert Space Information into Table ##############################
+if ( $User == 'all' ) then
+   sqlplus  / @$SQLS/ins_uspace $PID > /dev/null
+else
+   sqlplus -s / @$SQLS/ins_uspace_user $PID $User > /dev/null
+endif
+
+### Report: Show Unused Allocation per Table #########################
+	sqlplus -s / <<*EOF*
+set line 80
+spool $LOGS/showunused_$PID.log
+set pagesize 90
+set echo off
+set termout off
+set feedback off
+set verify off
+column object_name format a25 heading "Object Name"
+column ts_name format a13 heading "Tablespace"
+column total_bytes format 9,999,999 heading "Allocated| K Bytes"
+column object_type format a6 heading "Type"
+column pct_unused format 999 heading "Percent|Unused"
+column owner format a11 heading "User"
+select owner,object_name,object_type,
+       ts_name,total_bytes,pct_unused
+from uspace_$PID
+order by pct_unused desc, total_bytes;
+spool off
+*EOF*
+
+### Clean uspace Table ################################################
+if ( $NotDropUspace == 0 ) then
+   sqlplus -s / <<*EOF*
+set echo off
+set termout off
+set feedback off
+set verify off
+drop table uspace_$PID;
+*EOF*
+endif

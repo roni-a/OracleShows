@@ -1,0 +1,75 @@
+#!/usr/bin/ksh
+
+
+#---------------------------------------------
+# Usage
+#---------------------------------------------
+Usage () {
+   echo "\n\tUsage: showhotobj \n"
+   echo "\tThe Script shows Hottest Objects by Cache Buffer Chain.\n"
+}
+
+#---------------------------------------------
+# Show User Objects by type
+#---------------------------------------------
+Show_Uobj () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+/*
+create view x_$bh as select * from x$bh;
+create public synonym x$bh for x_$bh;
+grant select on x_$bh to <some dba-only role>;
+*/
+set lines 120 serverout on feedback off
+col NAME for a30
+prompt
+
+DECLARE
+
+CURSOR hot_obj IS
+ SELECT   SUM(SLEEPS) sleeps,
+          b.OBJ obj,
+          c.NAME name
+   FROM   V\$LATCH_CHILDREN a, x\$bh b, sys.obj\$ c
+  WHERE   a.name = 'cache buffers chains'
+    AND   SLEEPS > 0
+    AND   a.ADDR = b.HLADDR
+    AND   b.obj = c.DATAOBJ#
+  GROUP   BY b.OBJ, c.NAME
+  ORDER  BY sleeps DESC;
+
+p_no_lins       NUMBER := 0;
+top10              EXCEPTION;
+
+BEGIN
+
+DBMS_OUTPUT.PUT_LINE('Hottest Objects by Cache Buffer Chain');
+DBMS_OUTPUT.PUT_LINE('_ ');
+DBMS_OUTPUT.PUT_LINE('SLEEPS  OBJ   OBJECT_NAME');
+DBMS_OUTPUT.PUT_LINE('------  ----- ------------');
+
+   FOR rec_hot_obj IN hot_obj LOOP
+      DBMS_OUTPUT.PUT_LINE(rec_hot_obj.sleeps||'  '||rec_hot_obj.obj||'  '||rec_hot_obj.name);
+        p_no_lins := p_no_lins + 1;
+        IF p_no_lins > 10
+        THEN
+           RAISE top10;
+        END IF;
+   END LOOP;
+
+EXCEPTION
+        WHEN    top10 THEN
+                NULL;
+END;
+/
+*EOF*
+}
+
+#---------------------------------------------
+# M A I N
+#---------------------------------------------
+case $1 in
+   -[hH] ) Usage
+	   ;;
+       * ) Show_Uobj
+	   ;;
+esac

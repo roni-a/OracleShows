@@ -1,0 +1,98 @@
+#!/usr/bin/ksh 
+
+#---------------------------------------------------
+# USAGE
+#---------------------------------------------------
+Usage () {
+   echo "\n\tUsage: showutab [ <user_name> | <part_of_uname> ] [ <tab_name> | <part_of_tab_name> ] [index]\n"
+   exit
+}
+
+#---------------------------------------------------
+# Show tables/indexes location and size
+#---------------------------------------------------
+ShowSource () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feedback off verify off linesize 132 pages 600
+
+define sname=$1
+define uname=$2
+define stype="${3}"
+
+SELECT text  "SOURCE"
+FROM   dba_source
+WHERE  OWNER = UPPER('&uname') 
+AND    name  = UPPER('&sname')
+AND    type  = UPPER('&stype')
+/
+
+prompt
+*EOF*
+}
+
+#---------------------------------------------------
+# Show tables/indexes location and size
+#---------------------------------------------------
+ListProc () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feedback off verify off linesize 152 pages 600
+
+define uname=$1
+
+SELECT DISTINCT(name),type
+FROM   dba_source
+WHERE  OWNER = UPPER('&uname')
+/
+*EOF*
+}
+
+#---------------------------------------------------
+# SearchSource
+#---------------------------------------------------
+SearchSource () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feedback off verify off linesize 252 pages 600
+col owner for a10
+
+define search_text=$1
+
+SELECT owner, 
+       name, 
+       type, 
+       substr(trim(text),0,120)
+FROM   dba_source 
+WHERE  UPPER(text) LIKE '%&search_text%'
+AND    type <> 'PACKAGE'
+/
+
+prompt
+*EOF*
+}
+ 
+#---------------------------------------------------
+# MAin
+#---------------------------------------------------
+if [ $# -lt 1 -o $# -ge 4 ] ; then
+   Usage
+fi
+
+if [ "$3" = "index" ] ; then
+   SQL="AND   segment_type IN ('INDEX','INDEX PARTITION')"
+   ShowUtab $1 $2
+elif [ "$1" = "l" ] ; then
+   HOST=`hostname`
+   if [ "${HOST}" = "barvuz1" ] ; then
+      ListProc IMPROC
+   elif [ "${HOST}" = "hobart" ] ; then
+      ListProc DW_SCHEMA 
+   fi
+elif [ "$1" = "s" ] ; then
+   SearchSource $2
+else
+   HOST=`hostname`
+   if [ "${HOST}" = "barvuz1" ] ; then
+      ShowSource $1 IMPROC "${2}"
+   elif [ "${HOST}" = "hobart" ] ; then
+      ShowSource $1 DW_SCHEMA "${2}"
+   fi
+fi

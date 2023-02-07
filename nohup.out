@@ -1,0 +1,9 @@
+SP2-0027: Input is too long (> 2499 characters) - line ignored
+SP2-0027: Input is too long (> 2499 characters) - line ignored
+				   ),
+                                   *
+ERROR at line 6:
+ORA-00936: missing expression
+
+
+Elapsed: 00:00:00.00

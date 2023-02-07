@@ -1,0 +1,80 @@
+#!/usr/bin/ksh
+
+if [ "$1" = "" ] ; then
+   COND_REM="--"
+   COND=""
+else
+   COND_REM=""
+   COND="WHERE UPPER(job_name) LIKE UPPER('%$1%')"
+fi
+
+if [ "$2" = "" ] ; then
+   REMARK="--"
+else
+   REMARK=""
+fi
+
+HOST=`hostname`
+
+if [ "$HOST" = "noosa.int.incredimail.com" ] ; then
+   OUSER="DW_SCHEMA"
+   REMARK=""
+   DREMARK="--"
+   ENDOL=''
+elif [ "$HOST" = "barvuz1" ] ; then
+   OUSER="IM_SCHEMA"
+   REMARK="--"
+   ENDOL="'); -- "
+fi
+
+# echo $BACK , $HOST , $OUSER
+
+sqlplus -s /  << *EOF*
+set serverout on size 1000000 feedback off pages 0 lines 190
+alter session set nls_date_format='DD-MON-RRRR HH24:MI:SS';
+PROMPT
+DECLARE
+   v_p2		VARCHAR2(50);
+   v_p3		VARCHAR2(50);
+   v_user       VARCHAR2(50);
+
+   CURSOR cur_cntl IS
+        SELECT  job_number,
+ 		job_name,
+      		initializer,
+      		stats,
+      		NVL(comments,' ') comments,
+      		last_update_date,
+      		NVL(p1,' ') p1
+$REMARK      		,NVL(p2,' ') p2
+$REMARK      		,NVL(p3,' ') p3
+	FROM   ${OUSER}.im_job_ctrl
+$COND_REM       $COND
+	ORDER  BY 1;
+BEGIN
+   v_user := '${OUSER}';
+   DBMS_OUTPUT.PUT_LINE('+---+-----------------------------+-------------+---+--------------------------------+---------------------+----------+${ENDOL}--------------------+----------+');
+   DBMS_OUTPUT.PUT_LINE('|NUM| Name                        | Initializer |STS| Commants                       | DATE                | P1       |${ENDOL} P2                 | P3       |');
+   DBMS_OUTPUT.PUT_LINE('+---+-----------------------------+-------------+---+--------------------------------+---------------------+----------+${ENDOL}--------------------+----------+');
+
+   FOR rec_ctrl IN cur_cntl 
+   LOOP
+      IF v_user = 'IM_SCHEMA'
+      THEN
+      	 v_p2 := ' ';
+  	 v_p3 := ' ';
+$REMARK      ELSE
+$REMARK	 v_p2 := rec_ctrl.p2;
+$REMARK	 v_p3 := rec_ctrl.p3;
+      END IF;
+      DBMS_OUTPUT.PUT_LINE('|'||lpad(rec_ctrl.job_number,3)||'| '||rpad(rec_ctrl.job_name,28)||'|'||lpad(rec_ctrl.initializer,12)||' |'||lpad(rec_ctrl.stats,3)||'| '||rpad(substr(rec_ctrl.comments,0,30),30)||' |'||NVL(rec_ctrl.last_update_date,'01-JAN-1900')||' |'||lpad(substr(rec_ctrl.p1,0,10),10)||'|${ENDOL}'||lpad(substr(v_p2,0,20),20)||'|'||lpad(substr(v_p3,0,10),10)||'|');
+      DBMS_OUTPUT.PUT_LINE('+---+-----------------------------+-------------+---+--------------------------------+---------------------+----------+${ENDOL}--------------------+----------+');
+   END LOOP;
+EXCEPTION
+   WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR: '||sqlerrm||' !!!');
+END;
+/
+PROMPT
+*EOF*
+

@@ -1,0 +1,286 @@
+#!/bin/sh 
+
+######################################################################
+# Script:    showsess
+# Author:    
+# Date:      07/00
+# Update:    10/04
+#
+#######################################################################
+# Script Porpose: Show session info 
+# Script Parameters:
+# SQL Scripts: jobdet.sql, sessact.sql, sessaud.sql, sesscon.sql, 
+#              sesscpu.sql, sesscur.sql, 
+#              sesscurs.sql, sessclcnt.sql, sessclient.sql, sessdet.sql, 
+#              sessevent.sql, sessfat.sql, sesshit.sql, sessidle.sql, 
+#              gsesslock.sql, sesslock.sql, sesslockmode.sql, sessmem.sql,
+#              sessobj.sql, sessproc.sql, sessprocs.sql, recent_sql.sql,
+#	       sess_waits.sql
+#######################################################################
+# Assuptions:
+#######################################################################
+
+# unalias rm
+SORT=/usr/bin/sort
+
+if [ -x /usr/bin/nawk ]
+  then AWK='/usr/bin/nawk'
+  else AWK='/usr/bin/awk'
+fi
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h                       | "
+ echo "        -a   [username]          | "
+ echo "        -aR  [username]          | "
+ echo "        -au                      | "
+ echo "        -as                      | "
+ echo "        -as2                     | "
+ echo "        -c   [username]          | "
+ echo "        -cl  [username]          | "
+ echo "        -clcnt                   | "
+ echo "        -cpu [username]          | "
+ echo "        -cur [sid]               | "
+ echo "        -d   [username]          | "
+ echo "        -e   [username] [-s sid] | "
+ echo "        -event                   | "
+ echo "        -eventR                  | "
+ echo "        -f                       | "
+ echo "        -fo                      | "
+ echo "        -hit                     | "
+ echo "        -i   [username]          | "
+ echo "        -job [username]          | "
+ echo "        -l   [username]          | "
+ echo "        -lc                      | " 
+ echo "        -long                    | " 
+ echo "        -lm  [username]          | "
+ echo "        -mem {sid}               | "
+ echo "        -o   [username]          | "
+ echo "        -p   [pid]               | "
+ echo "        -px                      | "
+ echo "        -r   [session_id]        | "
+ echo "        -r1  [session_id]        | "
+ echo "        -s   [username]          | "
+ echo "        -so  [session_id]        | "
+ echo "        -slm [session_id]        | "
+ echo "        -st  {sid}               | "
+ echo "        -sum                     | "
+ echo "        -sw                      | "
+ echo "        -u                       | "
+ echo "        -par                     | "
+ echo "       }\n"
+ echo " -h     Help"
+ echo " -a     Active connections"
+ echo " -aR    Active RAC connections"
+ echo " -au    Audit sessions"
+ echo " -as    Active SQLs"
+ echo " -as2   Active SQLs"
+ echo " -c     Current connections" 
+ echo " -cl    Clients connections"
+ echo " -clcnt Clients connections count"
+ echo " -cpu   CPU usage"
+ echo " -cur   Session open cursors"
+ echo " -d     Details of current sessions"
+ echo " -e     Events of sessions, and timed statistics"
+ echo " -event TOP Events waits of sessions run 20 times"
+ echo " -eventR TOP Events waits of sessions run 20 times - RAC"
+ echo " -f     Fatest sql"
+ echo " -fo    Session without failover"
+ echo " -hit   Sessions with a hit ratio < 80%"
+ echo " -i     Idle sessions"
+ echo " -job   Jobs status"
+ echo " -l     Locks" 
+ echo " -lc    License"
+ echo " -lm    Locks mode"
+ echo " -long  Longops"
+ echo " -mem   Memeory usage for a given sid"
+ echo " -o     Objects that users are working on"
+ echo " -p     Processes, for one process - local proc (Unix) # sould be given"
+ echo " -px    Show parallel sessions dependesis (suns and fathers)"
+ echo " -r     RECENT Sql text (FORMATED) for a given sid"
+ echo " -r1    RECENT Sql text (ONE LINE) for a given sid"
+ echo " -sc    Sql cursors"
+ echo " -slm   Singe Session Locks mode"
+ echo " -so    Objects that a session is working on"
+ echo " -st    Sql text for a given sid"
+ echo " -sum   Sessions summery"
+ echo " -sw    Sessions waits on...."
+ echo " -t     creates a trace file in UDUMP for agiven session"
+ echo " -te    create a trace file with event 10046 level 8"
+ echo " -par   Parallel Query waits"
+ printf "\n\n"
+}
+
+###################################################################
+# Get arguments
+# $1 - List of Arguments 
+#
+Get_Args()
+{
+ Username="%"
+ Sid="%"
+ while [ $# -gt 0 ]
+ do
+   flag=$1
+   shift
+   case $flag in
+     -s ) if [ "X$1" != "X" ]
+            then Sid=$1
+            else echo "Error: You must enter a sid"
+                 exit $ERROR
+          fi
+          shift ;;
+      * ) if [ `echo $flag | $AWK '{print match($1,"-")}'` -eq 0 ]
+            then Username=$flag
+          fi
+          ;;
+   esac
+ done
+lngth=`$ORACLE_HOME/bin/sqlplus -s / << *eof*
+set feed off
+set pagesize 0
+select max(length(username)+1) from dba_users where username like upper('$Username');
+*eof*
+`
+ return $OK
+}
+
+###################################################################
+# Get parameters for checking fat sql 
+#
+Get_Fat ()
+{
+ all=`ps -ef|grep "oracle$ORACLE_SID "|grep -v grep|sort -k 6,7|tail -1|$AWK '{print $2,$5,$7,$3}'`
+ if [ "X$all" != "X" ]
+ then
+ Pid=`echo $all | $AWK '{print $1}'`
+ Startime=`echo $all | $AWK '{print $2}'`
+ Cputime=`echo $all | $AWK '{print $3}'`
+ ppid=`echo $all | $AWK '{print $4}'`
+
+ if [ $ppid -ne 1 ]  
+   then Execom=`ps -ef|grep $ppid|grep -v grep | head -1|$AWK '{print $8}'`
+   else Execom='1'
+ fi
+fi
+}
+
+#########################################################################
+# MAIN
+#
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi 
+  
+  Get_Args $*
+  case $1 in
+    -h   ) Usage ;;
+    -a   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessact  $Username $lngth ;;
+    -aR  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessactR $Username $lngth ;;
+    -au  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessaud ;;
+#     -as  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sess_sqls ;;
+    -as  ) if [ "X$2" = "X" ]
+			        then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sess_sqls %
+              else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sess_sqls $2
+           fi
+           ;;
+    -as2 ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sess_act_sqls ;;
+    -c   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesscon $Username $lngth ;;
+    -cl  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessclient $Username $lngth ;;
+    -clcnt ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessclcnt ;;
+    -cpu ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesscpu $Username $lngth ;;
+    -cur ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/cursors $2 ;;
+    -d   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessdet $Username $lngth ;;
+    -e   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessevent $Username $Sid $lngth ;;
+    -event   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/eventtimer ;;
+    -eventR  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/eventtimerR ;;
+    -f   ) Get_Fat 
+           if [ "X$all" != "X" ]
+           then 
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessfat $Pid $Startime $Cputime $Execom 
+           fi;;
+    -fo  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sess_failover ;;
+    -hit ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesshit ;;
+    -i   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessidle $Username $lngth ;; 
+    -job ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/jobdet $Username $lngth ;;
+    -l   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesslock $Username $lngth ;;
+    -lR  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/lock $Username $lngth ;;
+    -lc  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesslice ;;
+    -lm  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesslockmode $Username $lngth ;;
+    -lmR ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/lockmode $Username $lngth ;;
+    -long ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/long ;;
+    -slm ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/singsesslockmode $2 $lngth ;;
+    -par ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/parallel ;;
+    -mem ) if [ "X$2" = "X" ]
+             then echo "Error: You must enter an sid"
+                  exit $ERROR
+           fi
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessmem $2 ;;
+    -o   ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessobj $Username $lngth ;;
+    -so  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/singsessobj $2 ;;
+    -p   ) if [ "X$2" = "X" ] 
+             then sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessprocs 
+             else sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sessproc $2
+           fi
+           ;;
+#    -px  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/pxrac ;;
+    -px  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/anlz_px ;;
+    -sc  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesscurs $Username ${lngth:=10} | less ;;
+    -st  ) if [ "X$2" = "X" ]
+             then echo "Error: You must enter an sid"
+                  exit $ERROR
+           fi
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesscur $2 ;;
+    -sum ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sesssum ;;
+    -sw  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/sess_waits ;;
+    -r   ) if [ "X$2" = "X" ]
+             then echo "Error: You must enter an sid"
+                  exit $ERROR
+           fi
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/recent_sql $2 | sed 's/WHERE/ WHERE /g' | concatenate.awk | perl $ORACLE_MON/format.pl |  sed '/^$/d' ;;
+    -rR  ) if [ "X$2" = "X" ]
+             then echo "Error: You must enter an sid"
+                  exit $ERROR
+           fi
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/recent_sqlR $2 $3 | sed 's/WHERE/ WHERE /g' | concatenate.awk | perl $ORACLE_MON/format.pl |  sed '/^$/d' ;;
+    -r1  ) if [ "X$2" = "X" ]
+             then echo "Error: You must enter an sid"
+                  exit $ERROR
+           fi
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/recent_sql $2 | concatenate.awk ;;
+    -r3  ) if [ "X$2" = "X" ]
+             then echo "Error: You must enter an sid"
+                  exit $ERROR
+           fi
+           sqlplus -s $USHOW/$PSHOW @$Sql_Dir/recent_sql3 $2 $3  ;;
+    -r4  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/recent_sql4 ;;
+    -t   ) if [ "X$3" = "X" ]
+             then echo "Error: You must enter an sid and a serial#"
+                  exit $ERROR
+           else $Sql_Dir/trace_sess.sql $2 $3 
+           fi ;;
+    -te  ) if [ "X$3" = "X" ]
+             then echo "Error: You must enter an sid and serial# and level (default of 8)"
+                  exit $ERROR
+           else $Sql_Dir/trace_sess_ev.sql $2 $3 $4
+           fi ;;
+
+     *   ) echo "Error: Wrong flag"
+           Usage
+           exit $ERROR 
+           ;;
+  esac
+  exit $OK 
+   

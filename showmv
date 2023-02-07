@@ -1,0 +1,52 @@
+#!/bin/bash
+#
+
+# ----------------------------------
+# 
+# ----------------------------------
+RefMV () {
+sqlplus -s / << *EOF*
+BEGIN
+  DBMS_SNAPSHOT.REFRESH(
+    LIST                 => '${usr}.${mview}'
+   ,PUSH_DEFERRED_RPC    => TRUE
+   ,REFRESH_AFTER_ERRORS => FALSE
+   ,PURGE_OPTION         => 1
+   ,PARALLELISM          => 0
+   ,ATOMIC_REFRESH       => TRUE
+   ,NESTED               => FALSE);
+END;
+/
+*EOF*
+}
+
+# ==================================
+# M A I N
+# ==================================
+
+## if [ "$1" = "-h" ]; then
+##    echo -en "\n\tUsage: $0 <object type> <object name> <schema>\n\n"
+##    exit
+## fi
+
+if [ "$1" = "-r" ]; then
+   usr=$2
+   mview=$3
+   RefMV
+   exit
+fi
+
+MV="%${1}%"
+MV=`echo $MV | tr [a-z] [A-Z]`
+ORD="${2}1,2"
+
+sqlplus -s / << *EOF*
+prompt
+SELECT * 
+FROM   DWHP_MVIEW_REFRESH_TIMES
+WHERE  name LIKE '$MV'
+ORDER  BY $ORD
+/
+
+prompt
+*EOF*

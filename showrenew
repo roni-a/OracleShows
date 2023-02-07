@@ -1,0 +1,65 @@
+#!/usr/bin/ksh
+
+if [ $# -ne 2 ] ; then
+FG=31m
+BG=43m
+T='gYw'   
+RED=31m
+GREEN=32m
+YELLOW=33m
+#   echo -en "$EINS \033[$FG\033[$BG    $T  \033[0m"
+   echo -en "\n\t\033[$YELLOW Usage: \033[0m $0 \033[$RED <start_date> \033[0m \033[$GREEN <end_date> \033[0m \n"
+   echo -en "\n\t\033[1m\033[46m dates in: DD-MON-YYYY format \033[0m \n\n"
+   exit
+else
+   echo -en "\n\t Orders Ceated Between \033[1m\033[41m $1 \033[0m And \033[1m\033[41m $2 \033[0m \n"
+fi
+echo -en "\33[45m                                                                               \33[0m"
+echo -en "\033[34m\033[42m"
+$ORACLE_HOME/bin/sqlplus -s /@dwhp << *EOF*
+col pct for 999.9
+set pages 100
+
+SELECT TO_CHAR(a.stat_date,'DD-MON-YYYY'), 
+       a.mark_to_renew,
+       b.Tolal_orders, 
+       (a.mark_to_renew/b.Tolal_orders)*100 pct, 
+       '%' from
+(SELECT  trunc(order_create_date) stat_date, count(serial_no) mark_to_renew
+     FROM  dw_schema.im_orders o,
+           dw_schema.im_order_details od,
+           dw_schema.im_user_license ul
+    WHERE  o.auto_renew_ind   = 1
+      AND  o.bill_provider_id IN (3,17)
+      AND  order_create_date  BETWEEN ('${1}') AND ('${2}')
+      AND  ul.license_type_id IN (12,4)
+      and license_period > 0
+      AND  o.gift_id          = 0
+      AND  od.quantity        = 1
+      AND  od.order_index     = 1
+      AND  ul.auto_renew_ind  = 1
+      AND  o.db_order_id      = ul.db_order_id
+      AND  o.db_order_id      = od.db_order_id
+group by trunc(order_create_date)) a,
+(SELECT  trunc(order_create_date) stat_date, count(serial_no) Tolal_orders
+     FROM  dw_schema.im_orders o,
+           dw_schema.im_order_details od,
+           dw_schema.im_user_license ul
+    WHERE  o.bill_provider_id IN (3,17)
+      AND  order_create_date  BETWEEN ('${1}') AND ('${2}')
+--      AND  order_create_date  BETWEEN ('01-JAN-2006') AND ('27-JUL-2006')
+      AND  ul.license_type_id IN (12,4)
+      and license_period > 0
+      AND  o.gift_id          = 0
+      AND  od.quantity        = 1
+      AND  od.order_index     = 1
+      AND  o.db_order_id      = ul.db_order_id
+      AND  o.db_order_id      = od.db_order_id
+group by trunc(order_create_date)) b
+where a.stat_date = b.stat_date
+order by 1
+/
+prompt ====* Only GG and JF bought throu Bizchord 
+*EOF*
+echo -en "\033[0m\n"
+echo -en "\33[45m                                                                               \33[0m\n"

@@ -1,0 +1,53 @@
+#!/bin/ksh  
+#######################################################
+#Script name: showtools.
+#Purpose:Gives decriptions about tables or views from the data dictionary, and
+#gives descriptions about our showshows with al its options.
+#Author:Avishay S. July 2002.
+#######################################################
+OK=0
+ERROR=1
+Sql_Dir=$ORACLE_MON/sqls
+#######################################################
+Usage()
+{
+echo "\n"
+echo "Usage: { showtools:         "
+echo " -dict                     "
+echo "      -tab  string           "
+echo "      -desc table_name      "
+echo " -dict Data dictionary information           "
+echo "    -tab  Comments of a all tables that contain the specified string " 
+echo "    -desc Comments of a table including columns "
+}
+
+##################MAIN##################################
+if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+fi
+flag=$1
+shift
+ case $flag in
+   -dict) if [ "X$1" != "X" ] 
+            then case $1 in 
+                    -desc ) if [ "X$2" != "X" ]
+                              then sqlplus -s $USHOW/$PSHOW @${Sql_Dir}/getdata $2
+                              else echo Please enter table name:-desc table_name
+                              exit $ERROR 
+                            fi;;
+                    -tab ) if [ "X$2" != "X" ]
+                             then sqlplus -s $USHOW/$PSHOW @${Sql_Dir}/getdict $2
+                             else echo Please enter a string:-tab \"string\".
+                                  exit $ERROR
+                            fi;;
+                      *  ) Usage 
+                           exit $ERROR;;
+                           
+                esac
+            else echo Please enetr an option: -desc or -tab.
+          fi;;
+    *) Usage
+       exit $ERROR;;
+  esac 
+exit $OK

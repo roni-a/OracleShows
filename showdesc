@@ -1,0 +1,27 @@
+#!/usr/bin/ksh 
+
+if [ $# -ne 2 ] ; then
+   echo "\n\tUsage: showutab [ <user_name> | <part_of_uname> ] [ <tab_name> | <part_of_tab_name> ]\n"
+else
+TBLIST=`sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feedback off verify off linesize 132 pages 0
+column owner for a10
+define uname=$1
+define tname=$2
+SELECT  /*+ CHOOSE */ owner||'.'||table_name
+FROM dba_tables
+WHERE owner LIKE UPPER('&uname%')
+AND table_name LIKE UPPER('%&tname%')
+ORDER BY 1
+/
+*EOF*
+`
+for TB in `echo $TBLIST`
+do
+printf '%s\n%s\n%s\n' "=============================================" "Desc for $TB ." "============================================="
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feedback off verify off linesize 100 pages 25
+desc $TB
+*EOF*
+done
+fi

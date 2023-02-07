@@ -1,0 +1,44 @@
+#!/bin/bash
+#
+# echo -en "\n\n\t sqlplus user/pass @ $ORACLE_MON/sqls/dbmsddl2.sql TYPE NAME USER\n\n"
+# exit
+
+Usage () {
+   echo -en "\n\tUsage: $0 -t <object type> -n <object name> -u <schema>\n\n"
+}
+
+# ================================================
+# M A I N
+# ================================================
+case "$1" in
+	   -h|-help|--help|\/?|?|'' ) if [ "$2" = "" ]; then
+	                               Usage
+	                               exit 0
+	                            fi ;;
+esac
+
+export TYPE=""
+export OBJNAME=""
+export SCHEMA=""
+
+while getopts t:n:u: o
+do      case "$o" in
+	        t)  TYPE=`echo    $OPTARG | tr [a-z] [A-Z]` ;;
+	        n)  OBJNAME=`echo $OPTARG | tr [a-z] [A-Z]` ;;
+	        u)  SCHEMA=`echo  $OPTARG | tr [a-z] [A-Z]` ;;
+	        *)      cecho "      Wronge argument!!!" boldred
+	                usage
+	                exit 1 ;;
+	      esac
+done
+shift $(($OPTIND - 1))
+
+if   [ "$TYPE" = "TABLE" ];      then
+   sqlplus -s / @ $ORACLE_MON/sqls/dbmsddl.sql $SCHEMA $OBJNAME
+elif [ "$TYPE" = "TABLESPACE" ]; then
+   sqlplus -s / @ $ORACLE_MON/sqls/tsddl.sql $OBJNAME
+elif [ "$TYPE" = "MVIEW" ]; then
+   sqlplus -s / @ $ORACLE_MON/sqls/mvddl.sql $OBJNAME $SCHEMA
+else
+   sqlplus -s / @ $ORACLE_MON/sqls/dbmsddl2.sql $TYPE $OBJNAME $SCHEMA
+fi

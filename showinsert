@@ -1,0 +1,28 @@
+#!/bin/bash 
+
+if [ $# -eq 0 ]; then
+   echo -en "\n\n\t Usage: $0 <table_name> <user_name> <condition>\n\n"
+   exit 1
+fi
+UT=`echo $1 | tr [a-z] [A-Z]`
+UN=`echo $2 | tr [a-z] [A-Z]`
+if [ "$3" = '' ]; then
+   COND=' '
+else
+   COND="$3"
+fi
+
+
+sqlplus -s / << *EOF*
+set echo off lines 180 pages 0 verify off feedback off
+set esc '\'
+DEFINE uname=$UN
+DEFINE tname=$UT
+DEFINE cond="$COND"
+
+PROMPT
+select GET_INSERT_SCRIPT('&tname','&uname','&cond') 
+  from dual
+/
+PROMPT 
+*EOF*

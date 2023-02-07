@@ -1,0 +1,16 @@
+#!/bin/sh
+# this script was written by sagi yaron
+# and changes the window title
+# set title_text = hostname $HOST instance $ORACLE_SID 
+# the escape sequences were typed as follows:
+# ctrl+v,esc,],2,;,title,ctrl+g 
+# it only works in sh not tcsh and only on original xterm (not xonnet)
+# no use to copy the lines with the mouse
+if [ $# -ne 0 ]
+	then
+ echo "]2;$*\c"
+ echo "]1;$*\c"
+	else
+#  echo "]2;${HOST}_${USER}      INSTANCE-$ORACLE_SID       `pwd` \c"
+  echo "]2;${LOGNAME}@${HOST}  SID=${ORACLE_SID}: `pwd` "
+fi

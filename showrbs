@@ -1,0 +1,119 @@
+#!/bin/sh
+
+######################################################################
+# Script:    showrbs
+# Author:    Nirit Le. Amdocs
+# Date:      06/00
+# Update:    
+#
+#######################################################################
+# Script Purpose: Monitor Rollback segments
+# Script Parameters: See usage section
+# SQL Scripts: rbscont.sql, rbsheadcont.sql, rbslock.sql, rbsstat.sql
+#              rbsstrg.sql, rbstran.sql, waitstat.sql
+#######################################################################
+# Assumptions:
+#######################################################################
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: { `basename $0` "
+ echo "        -h | "
+ echo "        -all   | "
+ echo "        -cont  | "
+ echo "        -hcont | "
+ echo "        -lock  | "
+ echo "        -stat  | "
+ echo "        -strg  | "
+ echo "        -tran    "
+ echo "       }\n"
+ echo " -h     Help"
+ echo " -all   General report on rollback segments"
+ echo " -cont  Detect rollback segments contantions"
+ echo " -hcont Detect rollback segments header contentions"
+ echo " -lock  Detect rollback segments locking"
+ echo " -stat  Rollback segments status and statistics"
+ echo " -strg  Rollback segment storage info (dba_rolback_segs)"
+ echo " -tran  Rollback segment transactions"
+ printf "\n\n"
+}
+
+#########################################################################
+# Monitor the rollback segments 
+#
+Show_Mon()
+{
+ echo ""
+ echo "Rollback Segments status and statistics"
+ echo "======================================="
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbsstat
+ echo ""
+ echo "Rollback Segments Contention" 
+ echo "============================="
+ echo "Header contention"
+ echo "-----------------"
+ echo "Any nonzero value in the 'Waits' or the 'undo header' indicates contention."
+ echo "The Ratio of the sum of waits to the sum of gets should be less than 1%,"
+ echo "  else, more rollback segments are needed."
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbsheadcont
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/waitstat | egrep "CL|-|undo header| grep -v save"
+ echo
+ echo "Block contention"
+ echo "----------------"
+ echo "The number of waits for any class should be less than 1% of the total "
+ echo "  number of requests for data, else more rollback segments are needed."
+ echo
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/waitstat | egrep "CL|-|undo" | grep -v save
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbscont
+ echo 
+ echo "Rollback Segemets Locks"
+ echo "======================="
+ sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbslock
+}
+
+#########################################################################
+# MAIN
+#
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi
+
+Sql_Dir=$ORACLE_MON/sqls
+export Sql_Dir
+
+  Ver=`$ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @$Sql_Dir/version`
+  if [ $Ver -gt 8174 ]
+    then V=9
+  fi
+
+  case $1 in
+    -h     ) Usage ;;
+    -all   ) Show_Mon ;;
+    -cont  ) echo
+             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/waitstat | egrep "CL|-|undo" | grep -v save
+             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbscont ;;
+    -hcont ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbsheadcont 
+             sqlplus -s $USHOW/$PSHOW @$Sql_Dir/waitstat | egrep "CL|-|undo header" | grep -v save 
+             echo ;;
+    -lock  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbslock ;;
+    -strg  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbsstrg$V ;; 
+    -stat  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbsstat ;;
+    -tran  ) sqlplus -s $USHOW/$PSHOW @$Sql_Dir/rbstran ;;
+     *     ) echo "Error: Wrong flag"
+             Usage
+             exit $ERROR
+             ;;
+  esac
+  exit $OK
+

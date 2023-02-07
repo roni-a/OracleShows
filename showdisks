@@ -1,0 +1,5 @@
+
+echo -en "\n\n\t lvdisplay | egrep \"LV Name | LV Size | Block device\" \n\n"
+
+su -
+

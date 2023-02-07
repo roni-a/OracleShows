@@ -1,0 +1,272 @@
+#!/bin/sh 
+
+######################################################################
+# Script:    showix
+# Author:    Nirit Leibovitch, Amdocs 
+# Date:      Sep, 1999
+# Update:    
+#
+#######################################################################
+# Script Porpose:
+#	Report user indexes - storage data or columns data, 
+#	according to flags
+# Script Parameters:
+#	1 - Owner
+#	2 - Index (optional)
+#	3 - Table (optional)
+# SQL Scripts:
+#######################################################################
+
+unalias rm
+SORT=/usr/bin/sort
+
+OK=0
+ERROR=1
+CallType=''
+
+LOGS=$ORACLE_MON/logs/dbmon
+SQLS=$ORACLE_MON/sqls
+
+######################################################################
+# Prints the usage of the script.
+#
+Usage()
+{
+  clear
+  echo ""
+  echo ""
+  echo " Usage: "
+  echo " `basename $0` owner_name "
+  echo " [ { -x | -X } index_name ] "
+  echo " [ { -t | -T } table_name ] "
+  echo " { -s | -S } / { -c | -C } for Storage or column information "
+  echo ""
+  echo ""
+  return $OK
+}
+
+######################################################################
+# Gets the arguments from the user.
+#
+Get_Args()
+{
+ Owner=`echo $1 | tr "[:lower:]" "[:upper:]"`
+ shift
+ Storag=$ERROR
+ Column=$ERROR
+ Tables=$ERROR
+ Tab=%
+ Index=%
+ while [ $# -gt 0 ]
+ do
+      case $1 in
+          -[Xx])
+		if [ $# -lt 2 ]
+ 		  then Msg="You must specify index name with X flag"
+	               return $ERROR
+	 	  else Index=$2
+		fi 
+                shift
+                ;;
+          -[Ss])
+		CallType='S'
+                if [ $Column -eq $OK ]
+                  then Msg="Can not do storage and column. Choose one" 
+                       return $ERROR
+		  else Storag=$OK
+ 		fi
+                ;;
+          -[Cc])
+		CallType='C'
+                if [ $Storag -eq $OK ]
+		  then Msg="Can not do storage and column. Choose one" 
+ 	               return $ERROR
+                  else Column=$OK
+                fi
+                ;;
+          -[Tt])
+		CallType='T'
+		if [ $# -lt 2 ]
+ 		  then Msg="You must specify table name with T flag"
+	               return $ERROR
+	 	  else Tab=$2
+                       Tables=$OK
+		fi 
+                shift
+                ;;
+          -*)
+                Msg="$1 is unknowen switch"    
+		return $ERROR
+                ;;
+          default)
+                Msg="$1 is unknowen argument " 
+                ;;
+      esac
+      shift
+ done
+ if [ $Storag -eq $ERROR -a $Column -eq $ERROR -a $Tables -eq $ERROR ]
+   then Msg="You must enter flag for Storag (-s) of column (-c)"
+        return $ERROR
+ fi
+ return $OK
+}
+
+######################################################################
+# Data of Storag of User Indexes'
+#
+Sel_Ix_Strg()
+{
+sqlplus -s $USHOW/$PSHOW / <<*EOF*
+spool $LOGS/showix_$$.log
+set verify off
+set feedback off
+set linesize 90
+set pagesize 70
+set numwidth 6
+col table_name for a20 head "Indexed Object"
+col index_name for a25 head "Index"
+col bytes for 99,999
+col extents for 999 head "Ext"
+col initial_extent for 99,999
+col next_extent for 99,999
+col blevel for 999 head "B-lvl"
+break on table_name
+SELECT i.table_name, i.index_name, (s.bytes/1024) "KB", s.extents,
+       (i.initial_extent/1024) "Init(K)", (i.next_extent/1024) "Next(K)",
+       t.ts#, i.blevel
+FROM dba_indexes i, dba_segments s, sys.ts\$ t
+WHERE i.owner like '$Owner'
+  AND i.owner = s.owner
+  AND i.index_name like '$Index'
+  AND i.index_name = s.segment_name
+  AND t.name=i.tablespace_name
+ORDER by table_name;
+*EOF*
+}
+
+######################################################################
+# Data of Columns of User Indexes'
+#
+Sel_Ix_Col()
+{
+sqlplus -s $USHOW/$PSHOW  <<*EOF*
+spool $LOGS/showix_$$.log
+set verify off
+set feedback off
+set linesize 100
+set pagesize 70
+set numwidth 4
+col table_name for a24 head "Indexed Object"
+col index_name for a27 head "Index"
+col column_name for a25 head "Column"
+col column_position for 99 head "Pos"
+col column_length for 999 head "Len"
+break on table_name on index_name
+SELECT table_name, index_name, column_name, column_position, column_length
+FROM dba_ind_columns
+WHERE table_owner like '$Owner' 
+  AND index_name like '$Index'
+ORDER by table_name;
+*EOF*
+}
+
+######################################################################
+#       Report table indexes
+#         OutPut : Table Name
+#                  Index Name
+#                  Index Type
+#                  Column Name
+# 
+#
+Sel_Tab_Ix()
+{
+# ExecSql
+sqlplus -s  $USHOW/$PSHOW << *EOF* 
+set pagesize 1024
+set line 132
+set feed off
+set hea off
+
+col index_name format a34
+col column_name format a25
+col index_type format a10
+col constraint_type format a10
+col column_position noprint
+
+BREAK ON index_name skip 3 ON constraint_type ON index_type
+
+TTITLE col 1 "(*) Table Name : "$Tab skip 2 col 1 "Index" col 36 "Constraint" col 47 "Type" col 58 "Column" skip 1 col 1 "==================================" col 36 "**********" col 47 "**********" col 58 "*************************"
+
+SELECT  a.index_name,' ' constraint_type,
+     b.index_type,a.column_name,a.column_position
+FROM dba_ind_columns a
+    ,( select owner,index_name,index_type,table_name from dba_indexes ) b
+WHERE b.owner = upper('$Owner')
+  AND b.table_name like upper('$Tab')
+  AND b.index_name like upper('$Index')
+  AND a.index_owner = b.owner
+  AND a.index_name = b.index_name
+  AND NOT EXISTS ( SELECT '' FROM dba_constraints c
+                   WHERE c.owner = b.owner
+                     AND c.constraint_name = b.index_name )
+/
+*EOF*
+}
+Sel_Tab_2 () {
+#union 
+sqlplus -s $USHOW/$PSHOW << *EOF*
+SELECT  a.index_name,
+     DECODE(c.constraint_type
+               ,'P','PrimaryKey'
+               ,'R','ForeignKey'
+               ,'U','Unique',' ') constraint_type,
+     b.index_type,a.column_name,a.column_position
+FROM dba_ind_columns a
+    ,( select owner,index_name,index_type,table_name from dba_indexes ) b
+    ,( select owner,constraint_name,constraint_type from dba_constraints ) c
+WHERE b.owner = upper('$Owner')
+  AND b.table_name like upper('$Tab')
+  AND b.index_name like upper('$Index')
+  AND a.index_owner = b.owner
+  AND a.index_name = b.index_name
+  AND c.owner = b.owner
+  AND c.constraint_name = b.index_name
+ORDER BY index_name,column_position
+/
+*EOF*
+}
+
+
+######################################################################
+#
+# MAIN
+#
+if [ $# -lt 1 -o $# -gt 6 ]
+  then Usage
+       exit $OK
+fi
+
+Get_Args $* 
+if [ $? -eq $ERROR ]
+  then echo $Msg
+       exit
+fi
+
+# if [ $Column -eq $OK ]
+#   then Sel_Ix_Col
+#   else Sel_Ix_Strg
+# fi
+case $CallType in
+	C)
+		Sel_Ix_Col
+		;;
+	T)
+		Sel_Tab_Ix
+#		Sel_Tab_2
+		;;
+	S)
+		Sel_Ix_Strg
+		;;
+esac
+exit $OK
+

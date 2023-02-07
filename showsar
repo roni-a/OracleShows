@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+
+# DT="12 13 14 15"
+if [ $# -gt 0 ]; then
+DT="$*"
+> /tmp/sar-$(hostname)-multiple.txt
+   for i in $DT; do
+      LC_ALL=C sar -A  -f /var/log/sa/sa$i >> /tmp/sar-$(hostname)-multiple.txt
+   done
+   LC_ALL=C sar -A >> /tmp/sar-$(hostname)-multiple.txt
+else
+   mv /tmp/sar.data.txt /tmp/sar.data.txt.$$
+   LC_ALL=C sar -A > /tmp/sar.data.txt
+fi
+ls -l /tmp/sar-$(hostname)-multiple.txt

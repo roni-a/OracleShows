@@ -1,0 +1,68 @@
+#!/bin/bash
+# stg.COUPON
+
+cre_sql () {
+sqlplus -s / << *EOF*
+set serverout on lines 4000 pages 0 echo off feed off veri off
+
+DEFINE owner=$1
+DEFINE   tab=$2
+
+DECLARE
+   v_owner                  varchar2(1000) := '';
+   v_tab                    varchar2(1000) := '';
+   v_sql                    varchar2(1000) := '';
+   v_head                   varchar2(1000) := '';
+
+   CURSOR f_cur IS
+             SELECT column_name
+                         FROM   dba_tab_columns
+                         WHERE  owner      = UPPER('&owner')
+                         AND    table_name = UPPER('&tab')
+                         ORDER  BY column_id;
+
+ BEGIN
+         FOR rec_f IN f_cur
+         LOOP
+            IF v_sql IS NULL
+            THEN
+               v_sql  := 'SELECT ''"''||' || rec_f.COLUMN_NAME ;
+               v_head := '-- "'||rec_f.COLUMN_NAME ;
+            ELSE
+               v_sql  := v_sql || '||''","''||' || rec_f.COLUMN_NAME ;
+               v_head := v_head ||'","'|| rec_f.COLUMN_NAME ;
+            END IF;
+         END LOOP;
+
+         v_sql  := v_sql || '||''"'' FROM &owner..&tab;' ;
+         v_head := v_head || '"' ;
+
+         dbms_output.put_line('set veri off feed off echo off lines 1000 pages 0');
+         dbms_output.put_line('ALTER SESSION SET nls_date_format=''DD-MM-YYYY hh24:mi:ss''');
+         dbms_output.put_line(chr(10)||v_sql);
+         dbms_output.put_line(chr(10)||v_head);
+         dbms_output.put_line(chr(10)||'exit');
+ END;
+ /
+*EOF*
+}
+
+if [ $# -ne 2 ]; then
+	 echo -en "\n\tUsage: $0 <owner> <table>\n\n"
+	 exit 1
+fi
+
+SQL_FILE=exp_$2.sql
+OUT_FILE=/tmp/$2.dump.csv
+
+# sqlplus -s / @ cre.sql $1 $2 > $SQL_FILE
+cre_sql $1 $2 > $SQL_FILE
+cat $SQL_FILE
+exit
+
+HEADER=`grep "^--" $SQL_FILE | sed 's/-- //'`
+
+echo $HEADER             >  $OUT_FILE
+sqlplus -s / @ $SQL_FILE >> $OUT_FILE
+
+\rm -f $SQL_FILE

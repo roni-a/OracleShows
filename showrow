@@ -1,0 +1,69 @@
+#!/usr/bin/ksh
+
+#---------------------------------------------------
+# USAGE
+#---------------------------------------------------
+Usage () {
+   echo "\n\tUsage: showutab [ <user_name> | <part_of_uname> ] [ <tab_name> | <part_of_tab_name> ] [index]\n"
+   exit
+}
+
+#---------------------------------------------------
+# Show tables/indexes location and size
+#---------------------------------------------------
+ShowRow () {
+sqlplus -s $USHOW/${PSHOW} << *EOF*
+set echo off feedback off verify off linesize 152 pages 600 serverout on
+
+DECLARE
+  filen         dba_data_files.file_name%TYPE;
+  objname       dba_extents.segment_name%TYPE;
+  object_no     INTEGER;
+  file_nfo      INTEGER;
+  file_no       INTEGER;
+  block_no      NUMBER;
+  row_no        NUMBER;
+  rowtype       INTEGER;
+  rowid_val     ROWID := '${1}';
+BEGIN
+    DBMS_ROWID.ROWID_INFO(rowid_val, rowtype, object_no, file_nfo, block_no, row_no);
+
+    SELECT file_name INTO filen
+    FROM   dba_data_files
+    WHERE relative_fno = file_nfo;
+
+    DBMS_OUTPUT.PUT_LINE(chr(10)||'ROW Info for: ${1}');
+    DBMS_OUTPUT.PUT_LINE('--------------------------------');
+    DBMS_OUTPUT.PUT_LINE(chr(10)||'+-------------+----------------------------------------+');
+    DBMS_OUTPUT.PUT_LINE(RPAD('| Type ',13)||' | '||rpad(rowtype,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+');
+    DBMS_OUTPUT.PUT_LINE(RPAD('| Object No.',13)||' | '||rpad(object_no,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+');
+    DBMS_OUTPUT.PUT_LINE(RPAD('| File No. ',13)||' | '||rpad(file_nfo,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+');
+    DBMS_OUTPUT.PUT_LINE(RPAD('| File Name ',13)||' | '||rpad(filen,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+');
+    DBMS_OUTPUT.PUT_LINE(RPAD('| Block No. ',13)||' | '||rpad(block_no,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+');
+    DBMS_OUTPUT.PUT_LINE(RPAD('| Row No. ',13)||' | '||rpad(row_no,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+');
+ 
+    BEGIN
+            SELECT name INTO objname
+            FROM   sys.obj$
+            WHERE  dataobj# = object_no;
+               DBMS_OUTPUT.PUT_LINE(RPAD('| obj. #'||object_no,13)||' | '||rpad(objname,39)||'|');
+    DBMS_OUTPUT.PUT_LINE('+-------------+----------------------------------------+'||chr(10));
+    EXCEPTION
+            WHEN OTHERS THEN
+                 DBMS_OUTPUT.PUT_LINE(CHR(10)||RPAD('The obj. #'||object_no,25)||' NOTFOUND!'||CHR(10));
+    END;
+END;
+/
+*EOF*
+}
+
+#---------------------------------------------------
+# MAin
+#---------------------------------------------------
+ShowRow $1 

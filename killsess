@@ -1,0 +1,256 @@
+#!/bin/sh 
+
+######################################################################
+# Script:    killsess
+# Author:    Nirit Le. Amdocs
+# Date:      07/01
+# Update:
+#
+#######################################################################
+# Script Purpose: Kill session
+# Script Parameters: See usage section
+# SQL Scripts: 
+#######################################################################
+# Assumptions:
+#######################################################################
+
+OK=0
+ERROR=1
+
+Log_Dir=$ORACLE_MON/logs/dbmon
+Sql_Dir=$ORACLE_MON/sqls
+
+#########################################################################
+# Print script usage
+#
+Usage()
+{
+ printf "\n\n\n"
+ echo "Usage: "
+ echo "`basename $0` { -h | -a | -f file | -l | -o time | -s sid serial }"
+ echo "\n"
+ echo " -h   Help"
+ echo " -a   Kill all sessions"
+ echo " -f   Kill sessions in a file (format sid,serial)"
+ echo " -l   Kill locking sessions"
+ echo " -o   Kill old sessions (more then a given hours after last action)"
+ echo " -s   Kill a single session"
+ printf "\n\n"
+}
+
+#########################################################################
+# Check file existance
+#
+Chk_File()
+{
+ if [ ! -s $1 ]
+   then echo "Error: File '$1' dose not exists !"
+        return $ERROR
+ fi
+ if [ `grep -c " " $1` -ge 1 ]
+   then echo "Error: File '$1' should be in the following format: sid,serial" 
+        echo "       No spaces are expected"
+        return $ERROR
+ fi
+ return $OK
+}
+ 
+#########################################################################
+# Create T_$$ table 
+#
+Cre_Tab()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+    set feed off ver off
+    create table T_$$ (sid number, serial# number, spid varchar2(9));
+*eof*
+ Table=T_$$
+}
+
+#########################################################################
+# Drop T_$$ table
+#
+Drp_Tab()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+         set feed off
+         set ver off
+           drop table T_$$;
+*eof*
+}
+
+#########################################################################
+# Check if there are locks 
+#
+Chk_Lock()
+{
+  Lck=`$ORACLE_HOME/bin/sqlplus -s / <<*eof* 2>/dev/null
+set head off feed off pagesize 0
+select count(*) from v\\$locked_object;
+*eof*
+`
+ if [ $Lck -eq 0 ]
+   then return $ERROR
+ fi
+ return $OK
+}
+
+#########################################################################
+# Get file session
+# $1 - file
+#
+Get_File()
+{
+ cp /dev/null /tmp/ins.sql
+ for Sess in `cat $1`
+ do
+    Sid=`echo $Sess | cut -d, -f1`
+    Ser=`echo $Sess | cut -d, -f2`
+    echo insert into T_$$ values\($Sid,$Ser,NULL\)\; >> /tmp/ins.sql
+ done
+ echo exit >> /tmp/ins.sql
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW @/tmp/ins > /dev/null 2>&1
+}
+
+#########################################################################
+# Get locked/ing session 
+#
+Get_Lock()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+         set feed off
+         set ver off
+           INSERT INTO T_$$
+             SELECT l.session_id, s.serial#, p.spid
+             FROM v\$locked_object l, v\$session s, v\$process p
+             WHERE l.session_id=s.sid
+               AND s.username is not null
+               AND s.paddr=p.addr;
+*eof*
+}
+
+#########################################################################
+# Get old session
+#
+Get_Old()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+         set feed off
+         set ver off
+           INSERT INTO T_$$
+             SELECT s.sid, s.serial#, p.spid
+             FROM v\$session s, v\$process p
+             WHERE s.paddr=p.addr
+               AND s.last_call_et/60/60 > $1
+               AND s.username is not null;
+*eof*
+}
+
+#########################################################################
+# Get the unix process to kill 
+#
+Get_Spid()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+         set feed off
+         set ver off
+           UPDATE T_$$
+           SET spid=(SELECT p.spid
+                     FROM v\$process p, v\$session s
+                     WHERE s.paddr=p.addr
+                       AND T_$$.sid=s.sid
+                       AND T_$$.serial#=s.serial#);
+*eof*
+}
+
+#########################################################################
+# Kill the unix process 
+#
+Kill_Proc()
+{
+ $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* >  $Log_Dir/kill$$.sh 2>/dev/null
+           set head off
+           set feed off
+           set pagesize 0
+             SELECT 'kill -9 ' || spid
+             FROM T_$$;
+*eof*
+ chmod 755 $Log_Dir/kill$$.sh
+ $Log_Dir/kill$$.sh
+}
+
+
+#########################################################################
+# MAIN
+#
+ 
+  if [ $# -eq 0 ]
+    then Usage
+         exit $OK
+  fi
+
+  if [ "X$1" != "X-a" -a "X$1" != "X-h" ]
+    then Cre_Tab 
+  fi
+
+  case $1 in
+    -h ) Usage
+         ;;
+    -a ) Table=v\$session
+         ;;
+    -f ) if [ "X$2" = "X" ]
+           then echo "Error: You must enter file name"
+                exit $ERROR
+         fi
+         Chk_File $2
+         if [ $? -ne $OK ]
+           then Drp_Tab
+                exit $ERROR 
+         fi
+         Get_File $2
+         Get_Spid
+         ;;
+    -l ) Chk_Lock
+         if [ $? -ne $OK ]
+           then Drp_Tab
+                echo "There are no locks"
+                exit $ERROR
+         fi
+         Get_Lock 
+         ;;
+    -o ) if [ "X$2" = "X" ]
+           then echo "Error: You must enter time"
+                exit $ERROR
+         fi 
+         Get_Old $2
+         ;;
+    -s ) if [ "X$2" = "X" -o "X$3" = "X" ]
+           then echo "Error: You must enter sid and serial# "
+                exit $ERROR
+         fi 
+         $ORACLE_HOME/bin/sqlplus -s $USHOW/$PSHOW <<*eof* 2>/dev/null
+                 set feed off
+                 set ver off
+                   INSERT INTO T_$$ values($2,$3,NULL);
+*eof*
+         Get_Spid
+         ;;
+     * ) if [ "X$1" != "X" ]
+           then echo "Error: Wrong flag"
+                Usage
+                exit $ERROR
+         fi
+         ;;
+  esac
+
+  Out_File=$Log_Dir/sess_kill$$
+  sqlplus -s $USHOW/$PSHOW @$Sql_Dir/killsess $Table $Out_File
+  sqlplus -s $USHOW/$PSHOW @$Out_File 
+
+  Kill_Proc
+
+  if [ "X$1" != "X-a" -a "X$1" != "X-h" ]
+    then Drp_Tab 
+  fi
+
+  exit $OK

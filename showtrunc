@@ -1,0 +1,71 @@
+#!/bin/ksh 
+
+export ORACLE_SID=dwhp
+export ORACLE_HOME=`grep -i $ORACLE_SID /etc/oratab | awk -F: '{print $2}'`
+${ORACLE_HOME}/bin/sqlplus -s / << *EOF*
+prompt
+prompt set serverout on
+prompt
+prompt Table  im_msgs_stats_dwext
+prompt -------------------------------------------------------------------
+
+prompt exec im_schema.im_truncate_syn_tab@imlp('IM_MSGS_STATS_DWEXT')
+prompt -------------------------------------------------------------------
+
+select * from im_msgs_stats_dwext@imlp where rownum = 1;
+
+prompt LOCAL:
+prompt ++++++
+
+select * from dw_schema.im_msgs_stats_tmp where rownum = 1;
+
+prompt Table im_usage_stats_dwext
+prompt -------------------------------------------------------------------
+
+prompt exec im_schema.im_truncate_syn_tab@imlp('IM_USAGE_STATS_DWEXT')
+prompt -------------------------------------------------------------------
+
+select * from im_usage_stats_dwext@imlp where rownum = 1;
+
+prompt LOCAL:
+prompt ++++++
+
+select * from dw_schema.im_usage_stats_tmp where rownum = 1;
+
+prompt Table im_users_access_counters_dwext
+prompt -------------------------------------------------------------------
+
+select * from im_users_access_counters_dwext@imlp where rownum = 1;
+
+prompt LOCAL:
+prompt ++++++
+
+select * from dw_schema.im_users_access_counters_tmp where rownum = 1;
+
+prompt Table IM_CONTENTS_USAGE_dwext
+prompt -------------------------------------------------------------------
+
+prompt exec im_schema.im_truncate_syn_tab@imlp('IM_CONTENTS_USAGE_DWEXT')
+prompt -------------------------------------------------------------------
+
+select * from IM_CONTENTS_USAGE_dwext@imlp where rownum = 1;
+
+prompt LOCAL:
+prompt ++++++
+
+select * from dw_schema.IM_CONTENTS_USAGE_tmp where rownum = 1;
+
+prompt Table IM_ADS_STATS_dwext
+prompt -------------------------------------------------------------------
+
+prompt exec im_schema.im_truncate_syn_tab@imlp('IM_ADS_STATS_DWEXT')
+prompt -------------------------------------------------------------------
+
+select * from IM_ADS_STATS_dwext@imlp where rownum = 1;
+
+prompt LOCAL:
+prompt ++++++
+
+select * from dw_schema.IM_ADS_STATS_tmp where rownum = 1;
+
+*EOF*

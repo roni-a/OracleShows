@@ -1,0 +1,26 @@
+#!/usr/bin/ksh
+
+sqlplus -s /  << *EOF*
+set lines 140 pages 0 feedback off
+col tablespace_name 	for a30
+col file_name 		for a65
+col status 		for a10
+
+prompt
+prompt +-----------------------------+-----------------------------------------------------------------+----------+--------------------+
+prompt |      Tablespace Name        |                               File Name                         |  Status  |       Time         |
+prompt +-----------------------------+-----------------------------------------------------------------+----------+--------------------+
+
+SELECT 	a.tablespace_name tablespace_name,
+	a.file_name file_name,
+	b.status status,
+	b.time 
+FROM 	dba_data_files a, 
+	v\$backup b
+WHERE 	a.file_id=b.file# 
+-- AND 	b.status='ACTIVE'
+ORDER BY 1
+/
+prompt
+*EOF*
+
