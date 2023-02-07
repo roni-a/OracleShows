@@ -47,16 +47,16 @@ from
 	t.ksusgstv - nvl(b.time, 0) - nvl(r.time, 0)
 	     )  time
 	   from
-	     sys.x_$ksusgsta  t,
+	     sys.x$ksusgsta  t,
 	     (
 	select /*+ ordered use_nl(s) */  -- star query: few rows from d and b
    s.ksusestn,    -- statistic#
    sum(s.ksusestv)  time   -- time used by backgrounds
  from
-   sys.x_$ksusd  d,   -- statname
-   sys.x_$ksuse  b,   -- session
-   sys.x_$ksbdp  p,   -- background process
-   sys.x_$ksusesta  s   -- sesstat
+   sys.x$ksusd  d,   -- statname
+   sys.x$ksuse  b,   -- session
+   sys.x$ksbdp  p,   -- background process
+   sys.x$ksusesta  s   -- sesstat
  where
    d.ksusdnam in (
      'parse time cpu',
@@ -74,8 +74,8 @@ from
    (1 + kglstget - kglstght)  -- SQL AREA misses
      time
  from
-   sys.x_$kglst  k,
-   sys.x_$ksusgsta  g
+   sys.x$kglst  k,
+   sys.x$ksusgsta  g
  where
    k.indx = 0 and
    g.ksusdnam = 'parse time cpu'
@@ -200,15 +200,15 @@ from
    d.kslednam  wait_event,  -- event name
    i.kslestim - nvl(b.time, 0)  time -- non-background time
  from
-   sys.x_$kslei  i,   -- system events
+   sys.x$kslei  i,   -- system events
    (
      select /*+ ordered use_hash(e) */ -- no fixed index on e
        e.kslesenm,   -- event number
        sum(e.kslestim)  time  -- time waited by backgrounds
      from
-       sys.x_$ksuse  s,   -- sessions
-       sys.x_$ksbdp  b,   -- backgrounds
-       sys.x_$ksles  e   -- session events
+       sys.x$ksuse  s,   -- sessions
+       sys.x$ksbdp  b,   -- backgrounds
+       sys.x$ksles  e   -- session events
      where
        s.ksspaown = b.ksbdppro and -- background session
        e.kslessid = s.indx
@@ -217,7 +217,7 @@ from
      having
        sum(e.kslestim) > 0
    )  b,
-   sys.x_$ksled  d
+   sys.x$ksled  d
  where
    i.kslestim > 0 and
    b.kslesenm (+) = i.indx and
