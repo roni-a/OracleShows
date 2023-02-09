@@ -29,7 +29,7 @@ select
   wait_event,
   round(time/100)  seconds,
   round(time/100/3600/4)  hours,
-  substr(to_char(100 * ratio_to_report(time) over (), '99.00'), 2)) || '%'
+  substr(to_char(100 * ratio_to_report(time) over (), '99.00'), 2) || '%'
 pct
 from
   (
@@ -198,7 +198,7 @@ from
      )
    )  n_minor,
    d.kslednam  wait_event,  -- event name
-   i.kslestim - nvl(b.time, 0)  time -- non-background time
+   i.kslestim_fg - nvl(b.time, 0)  time -- non-background time
  from
    sys.x$kslei  i,   -- system events
    (
@@ -219,9 +219,9 @@ from
    )  b,
    sys.x$ksled  d
  where
-   i.kslestim > 0 and
+   i.kslestim_fg > 0 and
    b.kslesenm (+) = i.indx and
-   nvl(b.time, 0) < i.kslestim and
+   nvl(b.time, 0) < i.kslestim_fg and
    d.indx = i.indx and
    d.kslednam not in (
      'Null event',
